@@ -6,3 +6,5 @@ build/
 install/
 log/
 data/
+compile_commands.json
+.clangd
