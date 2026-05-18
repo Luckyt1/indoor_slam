@@ -1,0 +1,8 @@
+build/
+.claude/
+.cache/
+.agents/
+.omx/
+install/
+log/
+data/
