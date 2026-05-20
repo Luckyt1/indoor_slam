@@ -153,6 +153,7 @@ void SmallGicpRelocalizationNode::registeredPcdCallback(
 
 void SmallGicpRelocalizationNode::performRegistration()
 {
+        if (imu_en) {
   if (accumulated_cloud_->empty()) {
     RCLCPP_WARN(this->get_logger(), "No accumulated points to process.");
     return;
@@ -196,7 +197,8 @@ void SmallGicpRelocalizationNode::publishTransform()
   // `+ 0.1` means transform into future. according to https://robotics.stackexchange.com/a/96615
   transform_stamped.header.stamp = last_scan_time_ + rclcpp::Duration::from_seconds(0.1);
   transform_stamped.header.frame_id = map_frame_;
-  transform_stamped.child_frame_id = odom_frame_;
+  transform_stamped.child_frame_id = odom_fram
+        if (imu_en) {e_;
 
   const Eigen::Vector3d translation = result_t_.translation();
   const Eigen::Quaterniond rotation(result_t_.rotation());

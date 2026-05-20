@@ -165,6 +165,88 @@ void publish_init_map(
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
+struct StaticVoxelKey {
+  int64_t x;
+  int64_t y;
+  int64_t z;
+bool operator==(const StaticVoxelKey & other) const
+  {
+    return x == other.x && y == other.y && z == other.z;
+  }
+};
+struct StaticVoxelKeyHash {
+  std::size_t operator()(const StaticVoxelKey & key) const
+  {
+    std::size_t h = std::hash<int64_t>{}(key.x);
+    h ^= std::hash<int64_t>{}(key.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    h ^= std::hash<int64_t>{}(key.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    return h;
+  }
+};
+struct StaticVoxelCell {
+  PointType point;
+  int observations = 0;
+};
+static constexpr double kStaticMapVoxelSize = 0.15;
+static constexpr int kMinStaticObservations = 4;
+static std::unordered_map<StaticVoxelKey, StaticVoxelCell, StaticVoxelKeyHash> static_map_voxels;
+
+StaticVoxelKey makeStaticVoxelKey(const PointType & point)
+{
+  return {
+    static_cast<int64_t>(std::floor(point.x / kStaticMapVoxelSize)),
+    static_cast<int64_t>(std::floor(point.y / kStaticMapVoxelSize)),
+    static_cast<int64_t>(std::floor(point.z / kStaticMapVoxelSize))};
+}
+void accumulateStaticMapFrame(const PointCloudXYZI & cloud)
+{
+  std::unordered_map<StaticVoxelKey, PointType, StaticVoxelKeyHash> frame_voxels;
+  frame_voxels.reserve(cloud.size());
+
+  for (const auto & point : cloud.points) {
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
+      continue;
+    }
+
+    StaticVoxelKey key = makeStaticVoxelKey(point);
+    if (frame_voxels.find(key) == frame_voxels.end()) {
+      frame_voxels.emplace(key, point);
+    }
+  }
+
+  for (const auto & item : frame_voxels) {
+    StaticVoxelCell & cell = static_map_voxels[item.first];
+    const PointType & point = item.second;
+
+    if (cell.observations == 0) {
+      cell.point = point;
+    } else {
+      const double ratio = 1.0 / static_cast<double>(cell.observations + 1);
+      cell.point.x += (point.x - cell.point.x) * ratio;
+      cell.point.y += (point.y - cell.point.y) * ratio;
+      cell.point.z += (point.z - cell.point.z) * ratio;
+      cell.point.intensity += (point.intensity - cell.point.intensity) * ratio;
+    }
+
+    cell.observations++;
+  }
+}
+PointCloudXYZI::Ptr buildStaticMapCloud()
+{
+  PointCloudXYZI::Ptr cloud(new PointCloudXYZI());
+  cloud->points.reserve(static_map_voxels.size());
+
+  for (const auto & item : static_map_voxels) {
+    if (item.second.observations >= kMinStaticObservations) {
+      cloud->points.push_back(item.second.point);
+    }
+  }
+
+  cloud->width = cloud->points.size();
+  cloud->height = 1;
+  cloud->is_dense = false;
+  return cloud;
+}
 void publish_frame_world(
   const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & pubLaserCloudFullRes)
 {
@@ -181,19 +263,19 @@ void publish_frame_world(
     // 2. noted that pcd save will influence the real-time performances
     if (pcd_save_en) {
       *pcl_wait_save += *feats_down_world;
-
+      pcl::VoxelGrid<PointType> voxel;
       static int scan_wait_num = 0;
       scan_wait_num++;
-      if (!pcl_wait_save->empty() && pcd_save_interval > 0 && scan_wait_num >= pcd_save_interval) {
-        pcd_index++;
-        string all_points_dir(
-          string(string(ROOT_DIR) + "PCD/scans_") + to_string(pcd_index) + string(".pcd"));
-        pcl::PCDWriter pcd_writer;
-        std::cout << "current scan saved to /PCD/" << all_points_dir << '\n';
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
-        pcl_wait_save->clear();
-        scan_wait_num = 0;
-      }
+      if (pcd_save_en) {
+          PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
+
+          if (!static_cloud->empty()) {
+            string file_name = string("scans.pcd");
+            string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
+            pcl::PCDWriter pcd_writer;
+            pcd_writer.writeBinary(all_points_dir, *static_cloud);
+          }
+        }
     }
   }
 }
@@ -442,7 +524,7 @@ int main(int argc, char ** argv)
 
       double t0, t1, t2, t3, t4, t5, match_start, solve_start;
       match_time = 0;
-      solve_time = 0;
+      solve_time = 0; 
       propag_time = 0;
       update_time = 0;
       t0 = point_lio::wall_time();
@@ -461,7 +543,7 @@ int main(int argc, char ** argv)
       {
         time_seq = time_compressing<int>(feats_down_body);
         feats_down_size = feats_down_body->points.size();
-      }
+      } 
 
       if (!p_imu->after_imu_init_)  // !p_imu->UseLIInit &&
       {
