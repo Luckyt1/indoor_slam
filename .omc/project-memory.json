@@ -1,0 +1,105 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1779105423749,
+  "projectRoot": "/home/tang/github/indoor_slam",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 3,
+      "lastAccessed": 1779105423746,
+      "keyFiles": [
+        "COLCON_IGNORE",
+        "compile_commands.json"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 0,
+      "lastAccessed": 1779105423748,
+      "keyFiles": []
+    },
+    "install": {
+      "path": "install",
+      "purpose": null,
+      "fileCount": 12,
+      "lastAccessed": 1779105423748,
+      "keyFiles": [
+        "COLCON_IGNORE",
+        "_local_setup_util_ps1.py",
+        "_local_setup_util_sh.py",
+        "local_setup.bash",
+        "local_setup.ps1"
+      ]
+    },
+    "log": {
+      "path": "log",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1779105423749,
+      "keyFiles": [
+        "COLCON_IGNORE"
+      ]
+    },
+    "maps": {
+      "path": "maps",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1779105423749,
+      "keyFiles": [
+        "indoor_map.pgm",
+        "indoor_map.yaml",
+        "indoor_map_cropped.pgm",
+        "indoor_map_cropped.yaml",
+        "indoor_map_no_trail.pgm"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1779105423749,
+      "keyFiles": []
+    },
+    "tools": {
+      "path": "tools",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1779105423749,
+      "keyFiles": [
+        "pcd_to_occupancy_grid.py"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

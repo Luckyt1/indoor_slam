@@ -1,30 +1,31 @@
 cmake_minimum_required(VERSION 3.8)
 project(nav)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(nav2_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_action REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(indoor_nav_goal src/main.cpp)
 
 ament_target_dependencies(indoor_nav_goal
-  geometry_msgs
-  nav2_msgs
+  nav_msgs
   rclcpp
-  rclcpp_action
+  sensor_msgs
 )
 
-install(TARGETS indoor_nav_goal
-  DESTINATION lib/${PROJECT_NAME}
+install(TARGETS
+  indoor_nav_goal
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch config
+install(DIRECTORY launch config maps
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -36,11 +37,6 @@ if(EXISTS "${INDOOR_SLAM_MAPS_DIR}")
       PATTERN "*.yaml"
       PATTERN "*.pgm"
   )
-endif()
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
 endif()
 
 ament_package()
