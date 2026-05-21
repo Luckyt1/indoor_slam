@@ -32,6 +32,8 @@ int lidar_type, pcd_save_interval;
 std::vector<double> gravity_init, gravity;
 bool runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
 bool scan_pub_en, scan_body_pub_en, tf_send_en;
+bool filter_rear_points = false;
+double rear_filter_angle_deg = 145.0;
 shared_ptr<Preprocess> p_pre;
 shared_ptr<ImuProcess> p_imu;
 double time_update_last = 0.0, time_current = 0.0, time_predict_last_const = 0.0, t_last = 0.0;
@@ -219,6 +221,12 @@ void readParameters(std::shared_ptr<rclcpp::Node> & nh)
 
     nh->declare_parameter<float>("mapping.ivox_grid_resolution", 0.2);
     nh->get_parameter("mapping.ivox_grid_resolution", ivox_options_.resolution_);
+
+    nh->declare_parameter<bool>("mapping.filter_rear_points", false);
+    nh->get_parameter("mapping.filter_rear_points", filter_rear_points);
+
+    nh->declare_parameter<double>("mapping.rear_filter_angle_deg", 145.0);
+    nh->get_parameter("mapping.rear_filter_angle_deg", rear_filter_angle_deg);
 
     nh->declare_parameter<int>("ivox_nearby_type", 18);
     nh->get_parameter("ivox_nearby_type", ivox_nearby_type);

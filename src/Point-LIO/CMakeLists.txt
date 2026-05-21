@@ -3,6 +3,8 @@ project(point_lio)
 # 设置策略以消除警告
 cmake_policy(VERSION 3.16)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()

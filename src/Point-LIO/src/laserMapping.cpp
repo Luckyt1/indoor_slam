@@ -12,6 +12,8 @@
 #include <nav_msgs/msg/path.hpp>
 #include <timing_utils.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <unordered_map>
 
 #include "li_initialization.h"
@@ -115,6 +117,43 @@ void pointBodyLidarToIMU(PointType const * const pi, PointType * const po)
   po->intensity = pi->intensity;
 }
 
+bool keepPointForMapping(const PointType & point_body)
+{
+  if (!filter_rear_points) {
+    return true;
+  }
+
+  const double rear_sector_rad = std::clamp(rear_filter_angle_deg, 0.0, 360.0) * PI_M / 180.0;
+  if (rear_sector_rad <= 0.0) {
+    return true;
+  }
+
+  const double angle_from_rear = std::abs(std::atan2(point_body.y, -point_body.x));
+  return angle_from_rear > 0.5 * rear_sector_rad;
+}
+
+PointCloudXYZI::Ptr buildWorldCloudForMapping()
+{
+  if (!filter_rear_points) {
+    return feats_down_world;
+  }
+
+  PointCloudXYZI::Ptr filtered(new PointCloudXYZI());
+  const size_t point_count = std::min(feats_down_world->size(), feats_down_body->size());
+  filtered->points.reserve(point_count);
+
+  for (size_t i = 0; i < point_count; ++i) {
+    if (keepPointForMapping(feats_down_body->points[i])) {
+      filtered->points.push_back(feats_down_world->points[i]);
+    }
+  }
+
+  filtered->width = filtered->points.size();
+  filtered->height = 1;
+  filtered->is_dense = feats_down_world->is_dense;
+  return filtered;
+}
+
 void MapIncremental()
 {
   PointVector points_to_add;
@@ -122,6 +161,10 @@ void MapIncremental()
   points_to_add.reserve(cur_pts);
 
   for (size_t i = 0; i < cur_pts; ++i) {
+    if (i < feats_down_body->size() && !keepPointForMapping(feats_down_body->points[i])) {
+      continue;
+    }
+
     /* decide if need add to map */
     PointType & point_world = feats_down_world->points[i];
     if (!Nearest_Points[i].empty()) {
@@ -203,7 +246,7 @@ StaticVoxelKey makeStaticVoxelKey(const PointType & point)
     static_cast<int64_t>(std::floor(point.x / kStaticMapVoxelSize)),
     static_cast<int64_t>(std::floor(point.y / kStaticMapVoxelSize)),
     static_cast<int64_t>(std::floor(point.z / kStaticMapVoxelSize))};
-}9
+}
 void accumulateStaticMapFrame(const PointCloudXYZI & cloud)
 {
   static_map_frame_index++;
@@ -261,12 +304,30 @@ PointCloudXYZI::Ptr buildStaticMapCloud()
   cloud->is_dense = false;
   return cloud;
 }
+
+bool saveScansPcd(const PointCloudXYZI & cloud)
+{
+  const std::filesystem::path pcd_path = std::filesystem::path(ROOT_DIR) / "PCD" / "scans.pcd";
+
+  try {
+    std::filesystem::create_directories(pcd_path.parent_path());
+    pcl::PCDWriter pcd_writer;
+    pcd_writer.writeBinary(pcd_path.string(), cloud);
+    return true;
+  } catch (const std::exception & ex) {
+    RCLCPP_ERROR(LOGGER, "Failed to save PCD map to %s: %s", pcd_path.c_str(), ex.what());
+    return false;
+  }
+}
+
 void publish_frame_world(
   const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & pubLaserCloudFullRes)
 {
+  PointCloudXYZI::Ptr map_cloud = buildWorldCloudForMapping();
+
   if (scan_pub_en) {
     sensor_msgs::msg::PointCloud2 laserCloudmsg;
-    pcl::toROSMsg(*feats_down_world, laserCloudmsg);
+    pcl::toROSMsg(*map_cloud, laserCloudmsg);
 
     laserCloudmsg.header.stamp = get_ros_time(lidar_end_time);
     laserCloudmsg.header.frame_id = world_frame;
@@ -277,14 +338,11 @@ void publish_frame_world(
   // 1. make sure you have enough memories
   // 2. noted that pcd save will influence the real-time performances
   if (pcd_save_en) {
-    accumulateStaticMapFrame(*feats_down_world);
+    accumulateStaticMapFrame(*map_cloud);
     PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
 
     if (!static_cloud->empty()) {
-      string file_name = string("scans.pcd");
-      string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-      pcl::PCDWriter pcd_writer;
-      pcd_writer.writeBinary(all_points_dir, *static_cloud);
+      saveScansPcd(*static_cloud);
     }
   }
 }
@@ -585,6 +643,9 @@ int main(int argc, char ** argv)
           }
         }
         for (size_t i = 0; i < feats_down_world->size(); i++) {
+          if (i < feats_undistort->size() && !keepPointForMapping(feats_undistort->points[i])) {
+            continue;
+          }
           init_feats_world->points.emplace_back(feats_down_world->points[i]);
         }
         if (init_feats_world->size() < init_map_size) {
@@ -1093,10 +1154,7 @@ int main(int argc, char ** argv)
   if (pcd_save_en) {
     PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
     if (!static_cloud->empty()) {
-      string file_name = string("scans.pcd");
-      string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-      pcl::PCDWriter pcd_writer;
-      pcd_writer.writeBinary(all_points_dir, *static_cloud);
+      saveScansPcd(*static_cloud);
     } else {
       RCLCPP_WARN(LOGGER, "No time-consistent static points to save.");
     }

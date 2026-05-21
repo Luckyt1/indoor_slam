@@ -46,6 +46,8 @@
             plane_thr: 0.1                                  # 0.05, the threshold for plane criteria, the smaller, the flatter a plane
             match_s: 70.0
             ivox_grid_resolution: 0.5
+            filter_rear_points: True                       # Drop the rear sector from map building and PCD saving
+            rear_filter_angle_deg: 145.0                   # Total rear sector angle centered on -X in lidar/body frame
             gravity: [ 0.0, 0.0, -9.81]                   # [0.0, 9.810, 0.0] # gravity to be aligned
             gravity_init: [ 0.0, 0.0, -9.810]              # [0.0, 9.810, 0.0] # # preknown gravity in the first IMU body frame, use when imu_en is False or start from a non-stationary state
             extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
