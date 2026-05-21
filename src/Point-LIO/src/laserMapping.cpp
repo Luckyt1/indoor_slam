@@ -12,6 +12,8 @@
 #include <nav_msgs/msg/path.hpp>
 #include <timing_utils.h>
 
+#include <unordered_map>
+
 #include "li_initialization.h"
 
 using namespace std;
@@ -169,7 +171,7 @@ struct StaticVoxelKey {
   int64_t x;
   int64_t y;
   int64_t z;
-bool operator==(const StaticVoxelKey & other) const
+  bool operator==(const StaticVoxelKey & other) const
   {
     return x == other.x && y == other.y && z == other.z;
   }
@@ -186,10 +188,14 @@ struct StaticVoxelKeyHash {
 struct StaticVoxelCell {
   PointType point;
   int observations = 0;
+  int first_frame = 0;
+  int last_frame = 0;
 };
 static constexpr double kStaticMapVoxelSize = 0.15;
-static constexpr int kMinStaticObservations = 4;
+static constexpr int kMinStaticObservations = 8;
+static constexpr int kMinStaticObservationSpanFrames = 30;
 static std::unordered_map<StaticVoxelKey, StaticVoxelCell, StaticVoxelKeyHash> static_map_voxels;
+static int static_map_frame_index = 0;
 
 StaticVoxelKey makeStaticVoxelKey(const PointType & point)
 {
@@ -197,9 +203,11 @@ StaticVoxelKey makeStaticVoxelKey(const PointType & point)
     static_cast<int64_t>(std::floor(point.x / kStaticMapVoxelSize)),
     static_cast<int64_t>(std::floor(point.y / kStaticMapVoxelSize)),
     static_cast<int64_t>(std::floor(point.z / kStaticMapVoxelSize))};
-}
+}9
 void accumulateStaticMapFrame(const PointCloudXYZI & cloud)
 {
+  static_map_frame_index++;
+
   std::unordered_map<StaticVoxelKey, PointType, StaticVoxelKeyHash> frame_voxels;
   frame_voxels.reserve(cloud.size());
 
@@ -220,6 +228,7 @@ void accumulateStaticMapFrame(const PointCloudXYZI & cloud)
 
     if (cell.observations == 0) {
       cell.point = point;
+      cell.first_frame = static_map_frame_index;
     } else {
       const double ratio = 1.0 / static_cast<double>(cell.observations + 1);
       cell.point.x += (point.x - cell.point.x) * ratio;
@@ -229,6 +238,7 @@ void accumulateStaticMapFrame(const PointCloudXYZI & cloud)
     }
 
     cell.observations++;
+    cell.last_frame = static_map_frame_index;
   }
 }
 PointCloudXYZI::Ptr buildStaticMapCloud()
@@ -237,7 +247,11 @@ PointCloudXYZI::Ptr buildStaticMapCloud()
   cloud->points.reserve(static_map_voxels.size());
 
   for (const auto & item : static_map_voxels) {
-    if (item.second.observations >= kMinStaticObservations) {
+    const StaticVoxelCell & cell = item.second;
+    const int observed_span = cell.last_frame - cell.first_frame + 1;
+    if (
+      cell.observations >= kMinStaticObservations &&
+      observed_span >= kMinStaticObservationSpanFrames) {
       cloud->points.push_back(item.second.point);
     }
   }
@@ -257,25 +271,20 @@ void publish_frame_world(
     laserCloudmsg.header.stamp = get_ros_time(lidar_end_time);
     laserCloudmsg.header.frame_id = world_frame;
     pubLaserCloudFullRes->publish(laserCloudmsg);
+  }
 
-    //--------------------------save map-----------------------------------
-    // 1. make sure you have enough memories
-    // 2. noted that pcd save will influence the real-time performances
-    if (pcd_save_en) {
-      *pcl_wait_save += *feats_down_world;
-      pcl::VoxelGrid<PointType> voxel;
-      static int scan_wait_num = 0;
-      scan_wait_num++;
-      if (pcd_save_en) {
-          PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
+  //--------------------------save map-----------------------------------
+  // 1. make sure you have enough memories
+  // 2. noted that pcd save will influence the real-time performances
+  if (pcd_save_en) {
+    accumulateStaticMapFrame(*feats_down_world);
+    PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
 
-          if (!static_cloud->empty()) {
-            string file_name = string("scans.pcd");
-            string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-            pcl::PCDWriter pcd_writer;
-            pcd_writer.writeBinary(all_points_dir, *static_cloud);
-          }
-        }
+    if (!static_cloud->empty()) {
+      string file_name = string("scans.pcd");
+      string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
+      pcl::PCDWriter pcd_writer;
+      pcd_writer.writeBinary(all_points_dir, *static_cloud);
     }
   }
 }
@@ -1081,11 +1090,16 @@ int main(int argc, char ** argv)
   //--------------------------save map-----------------------------------
   /* 1. make sure you have enough memories
     /* 2. noted that pcd save will influence the real-time performences **/
-  if (pcl_wait_save->size() > 0 && pcd_save_en) {
-    string file_name = string("scans.pcd");
-    string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-    pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+  if (pcd_save_en) {
+    PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
+    if (!static_cloud->empty()) {
+      string file_name = string("scans.pcd");
+      string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
+      pcl::PCDWriter pcd_writer;
+      pcd_writer.writeBinary(all_points_dir, *static_cloud);
+    } else {
+      RCLCPP_WARN(LOGGER, "No time-consistent static points to save.");
+    }
   }
   fout_out.close();
   fout_imu_pbp.close();
