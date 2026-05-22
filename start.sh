@@ -41,18 +41,18 @@ tmux select-pane -t 3 -T "导航"
 # 发送 ROS2 指令
 # ---------------------------------------------------------------
 # 0号窗格 (左上): 雷达
-tmux send-keys -t $SESSION:0.0 "source install/setup.bash; ros2 launch livox_ros_driver2 msg_MID360s_launch.py" C-m
+tmux send-keys -t $SESSION:0.0 "export ROS_DOMAIN_ID=37 && source install/setup.bash && ros2 launch livox_ros_driver2 msg_MID360s_launch.py" C-m
 sleep 2
 
 # 2号窗格 (左下): 里程计 (Point-LIO)
-tmux send-keys -t $SESSION:0.2 "source install/setup.bash; ros2 launch point_lio point_lio.launch.py" C-m
+tmux send-keys -t $SESSION:0.2 "export ROS_DOMAIN_ID=37 && source install/setup.bash && ros2 launch point_lio point_lio.launch.py" C-m
 sleep 2
 
 # 1号窗格 (右上): 重定位 (small_gicp)
-tmux send-keys -t $SESSION:0.1 "source install/setup.bash; ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py" C-m
+tmux send-keys -t $SESSION:0.1 "export ROS_DOMAIN_ID=37 && source install/setup.bash && ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py" C-m
 
 # 3号窗格 (右下): 导航 (nav)
-tmux send-keys -t $SESSION:0.3 "source install/setup.bash; ros2 launch nav indoor_navigation_launch.py" C-m
+tmux send-keys -t $SESSION:0.3 "export ROS_DOMAIN_ID=37 && source install/setup.bash && ros2 launch nav indoor_navigation_launch.py" C-m
 
 # 打开会话并聚焦在左上角
 tmux select-pane -t 0

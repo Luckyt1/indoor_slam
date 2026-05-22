@@ -37,7 +37,7 @@ def read_binary_pcd_xyz(path: Path) -> tuple[np.ndarray, list[str]]:
         key = parts[0]
         if key == "FIELDS":
             fields = parts[1:]
-        elif key == "SIZE":
+        elif key == "SIZE":ce
             sizes = [int(v) for v in parts[1:]]
         elif key == "TYPE":
             types = parts[1:]
@@ -103,8 +103,8 @@ def main() -> None:
     parser.add_argument("--max-x", default=None, type=float, help="Manual maximum x bound")
     parser.add_argument("--min-y", default=None, type=float, help="Manual minimum y bound")
     parser.add_argument("--max-y", default=None, type=float, help="Manual maximum y bound")
-    parser.add_argument("--occupied-z-min", default=-0.20, type=float)
-    parser.add_argument("--occupied-z-max", default=1.80, type=float)
+    parser.add_argument("--occupied-z-min", default=-0.8, type=float)
+    parser.add_argument("--occupied-z-max", default=0.3, type=float)
     parser.add_argument("--free-z-min", default=-1.30, type=float)
     parser.add_argument("--free-z-max", default=-0.35, type=float)
     parser.add_argument(
@@ -124,6 +124,11 @@ def main() -> None:
         default=1,
         type=int,
         help="Dilate occupied cells by this many grid cells for visibility/safety",
+    )
+    parser.add_argument(
+        "--unknown-as-free",
+        action="store_true",
+        help="Mark cells with no floor/obstacle evidence as free instead of unknown",
     )
     args = parser.parse_args()
 
@@ -160,6 +165,9 @@ def main() -> None:
         expanded[:, :-1] |= occupied_mask[:, 1:]
         occupied_mask = expanded
     grid[occupied_mask] = 0
+
+    if args.unknown_as_free:
+        grid[grid == 205] = 254
 
     # PGM origin is top-left, ROS map origin is bottom-left.
     pgm_image = np.flipud(grid)

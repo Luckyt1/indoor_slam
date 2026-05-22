@@ -13,6 +13,8 @@
 # limitations under the License.
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -24,6 +26,7 @@ def generate_launch_description():
     # TODO(orduno) Substitute with `PushNodeRemapping`
     #              https://github.com/ros2/launch_ros/issues/56
     remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
+    prior_pcd_file = LaunchConfiguration("prior_pcd_file")
 
     node = Node(
         package="small_gicp_relocalization",
@@ -35,18 +38,31 @@ def generate_launch_description():
             {
                 "num_threads": 4,
                 "num_neighbors": 10,
+                "min_source_points": 200,
                 "global_leaf_size": 0.25,
                 "registered_leaf_size": 0.25,
-                "max_dist_sq": 10.0,
+                "max_dist_sq": 1.0,
+                "min_inlier_ratio": 0.35,
+                "max_fitness_score": 2.0,
+                "max_translation_update": 1.0,
+                "max_rotation_update_deg": 20.0,
+                "require_initial_pose": True,
                 "map_frame": "map",
                 "odom_frame": "odom",
                 "base_frame": "",
                 "robot_base_frame": "base_link",
                 "lidar_frame": "",
-                "prior_pcd_file": "/home/tang/github/indoor_slam/src/Point-LIO/PCD/scans.pcd",
+                "prior_pcd_file": prior_pcd_file,
                 "input_cloud_topic": "cloud_registered",
             }
         ],
     )
 
-    return LaunchDescription([node])
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            "prior_pcd_file",
+            default_value="/home/tang/github/indoor_slam/maps/PCD/scans_4.pcd",
+            description="PCD map file to load and publish for relocalization visualization",
+        ),
+        node,
+    ])

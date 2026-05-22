@@ -14,6 +14,10 @@
 
 #include "small_gicp_relocalization/small_gicp_relocalization.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 #include "pcl/common/transforms.h"
 #include "pcl_conversions/pcl_conversions.h"
 #include "small_gicp/pcl/pcl_registration.hpp"
@@ -23,30 +27,68 @@
 namespace small_gicp_relocalization
 {
 
+namespace
+{
+
+Eigen::Isometry3d makePlanarTransform(double x, double y, double yaw)
+{
+  Eigen::Isometry3d transform = Eigen::Isometry3d::Identity();
+  transform.translation() << x, y, 0.0;
+  transform.linear() = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  return transform;
+}
+
+double planarYaw(const Eigen::Matrix3d & rotation)
+{
+  return std::atan2(rotation(1, 0), rotation(0, 0));
+}
+
+Eigen::Isometry3d projectToPlanar(const Eigen::Isometry3d & transform)
+{
+  return makePlanarTransform(
+    transform.translation().x(), transform.translation().y(), planarYaw(transform.rotation()));
+}
+
+}  // namespace
+
 SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptions & options)
 : Node("small_gicp_relocalization", options),
+  initial_pose_received_(false),
+  has_global_map_msg_(false),
   result_t_(Eigen::Isometry3d::Identity()),
   previous_result_t_(Eigen::Isometry3d::Identity())
 {
   this->declare_parameter("num_threads", 4);
   this->declare_parameter("num_neighbors", 20);
+  this->declare_parameter("min_source_points", 200);
   this->declare_parameter("global_leaf_size", 0.25);
   this->declare_parameter("registered_leaf_size", 0.25);
   this->declare_parameter("max_dist_sq", 1.0);
+  this->declare_parameter("min_inlier_ratio", 0.35);
+  this->declare_parameter("max_fitness_score", 2.0);
+  this->declare_parameter("max_translation_update", 1.0);
+  this->declare_parameter("max_rotation_update_deg", 20.0);
+  this->declare_parameter("require_initial_pose", false);
   this->declare_parameter("map_frame", "map");
   this->declare_parameter("odom_frame", "odom");
   this->declare_parameter("base_frame", "");
   this->declare_parameter("robot_base_frame", "");
   this->declare_parameter("lidar_frame", "");
   this->declare_parameter("prior_pcd_file", "");
-  this->declare_parameter("init_pose", std::vector<double>{0., 0., 0., 0., 0., 0.});
+  this->declare_parameter("init_pose", std::vector<double>{});
   this->declare_parameter("input_cloud_topic", "registered_scan");
 
   this->get_parameter("num_threads", num_threads_);
   this->get_parameter("num_neighbors", num_neighbors_);
+  this->get_parameter("min_source_points", min_source_points_);
   this->get_parameter("global_leaf_size", global_leaf_size_);
   this->get_parameter("registered_leaf_size", registered_leaf_size_);
   this->get_parameter("max_dist_sq", max_dist_sq_);
+  this->get_parameter("min_inlier_ratio", min_inlier_ratio_);
+  this->get_parameter("max_fitness_score", max_fitness_score_);
+  this->get_parameter("max_translation_update", max_translation_update_);
+  this->get_parameter("max_rotation_update_deg", max_rotation_update_);
+  this->get_parameter("require_initial_pose", require_initial_pose_);
   this->get_parameter("map_frame", map_frame_);
   this->get_parameter("odom_frame", odom_frame_);
   this->get_parameter("base_frame", base_frame_);
@@ -63,7 +105,9 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
       Eigen::AngleAxisd(init_pose_[5], Eigen::Vector3d::UnitZ()) *
       Eigen::AngleAxisd(init_pose_[4], Eigen::Vector3d::UnitY()) *
       Eigen::AngleAxisd(init_pose_[3], Eigen::Vector3d::UnitX()).toRotationMatrix();
+    initial_pose_received_ = true;
   }
+  max_rotation_update_ = max_rotation_update_ * std::acos(-1.0) / 180.0;
   previous_result_t_ = result_t_;
 
   accumulated_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
@@ -74,6 +118,13 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
   tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
+
+  global_map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+    "relocalization/global_map", rclcpp::QoS(1).transient_local().reliable());
+  current_scan_pub_ =
+    this->create_publisher<sensor_msgs::msg::PointCloud2>("relocalization/current_scan", 10);
+  aligned_scan_pub_ =
+    this->create_publisher<sensor_msgs::msg::PointCloud2>("relocalization/aligned_scan", 10);
 
   loadGlobalMap(prior_pcd_file_);
 
@@ -104,6 +155,9 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   transform_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(50),  // 20 Hz
     std::bind(&SmallGicpRelocalizationNode::publishTransform, this));
+
+  global_map_timer_ = this->create_wall_timer(
+    std::chrono::milliseconds(1000), std::bind(&SmallGicpRelocalizationNode::publishGlobalMap, this));
 }
 
 void SmallGicpRelocalizationNode::loadGlobalMap(const std::string & file_name)
@@ -138,6 +192,20 @@ void SmallGicpRelocalizationNode::loadGlobalMap(const std::string & file_name)
     }
   }
   pcl::transformPointCloud(*global_map_, *global_map_, odom_to_lidar_odom);
+  pcl::toROSMsg(*global_map_, global_map_msg_);
+  global_map_msg_.header.frame_id = map_frame_;
+  has_global_map_msg_ = true;
+  publishGlobalMap();
+}
+
+void SmallGicpRelocalizationNode::publishGlobalMap()
+{
+  if (!has_global_map_msg_) {
+    return;
+  }
+
+  global_map_msg_.header.stamp = this->now();
+  global_map_pub_->publish(global_map_msg_);
 }
 
 void SmallGicpRelocalizationNode::registeredPcdCallback(
@@ -147,12 +215,27 @@ void SmallGicpRelocalizationNode::registeredPcdCallback(
   current_scan_frame_id_ = msg->header.frame_id;
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr scan(new pcl::PointCloud<pcl::PointXYZ>());
+
   pcl::fromROSMsg(*msg, *scan);
+
+  sensor_msgs::msg::PointCloud2 debug_msg;
+  pcl::toROSMsg(*scan, debug_msg);
+  debug_msg.header = msg->header;
+  current_scan_pub_->publish(debug_msg);
+
   *accumulated_cloud_ += *scan;
 }
 
 void SmallGicpRelocalizationNode::performRegistration()
 {
+  if (require_initial_pose_ && !initial_pose_received_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 5000,
+      "Waiting for /initialpose before accepting GICP updates.");
+    accumulated_cloud_->clear();
+    return;
+  }
+
   if (accumulated_cloud_->empty()) {
     RCLCPP_WARN(this->get_logger(), "No accumulated points to process.");
     return;
@@ -161,6 +244,16 @@ void SmallGicpRelocalizationNode::performRegistration()
   source_ = small_gicp::voxelgrid_sampling_omp<
     pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
     *accumulated_cloud_, registered_leaf_size_);
+
+  accumulated_cloud_->clear();
+
+  if (source_->size() < static_cast<size_t>(std::max(min_source_points_, 0))) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 2000,
+      "Rejecting GICP input: too few source points after downsampling (%zu < %d).",
+      source_->size(), min_source_points_);
+    return;
+  }
 
   small_gicp::estimate_covariances_omp(*source_, num_neighbors_, num_threads_);
 
@@ -177,13 +270,56 @@ void SmallGicpRelocalizationNode::performRegistration()
 
   auto result = register_->align(*target_, *source_, *target_tree_, previous_result_t_);
 
-  if (result.converged) {
-    result_t_ = previous_result_t_ = result.T_target_source;
-  } else {
+  const double inlier_ratio =
+    source_->empty() ? 0.0 : static_cast<double>(result.num_inliers) / source_->size();
+  const double fitness_score = result.num_inliers == 0
+                                ? std::numeric_limits<double>::infinity()
+                                : result.error / static_cast<double>(result.num_inliers);
+  const Eigen::Isometry3d delta = previous_result_t_.inverse() * result.T_target_source;
+  const double translation_update = delta.translation().norm();
+  const double rotation_update = Eigen::AngleAxisd(delta.rotation()).angle();
+
+  if (!result.converged) {
     RCLCPP_WARN(this->get_logger(), "GICP did not converge.");
+    return;
   }
 
-  accumulated_cloud_->clear();
+  if (
+    !std::isfinite(fitness_score) || inlier_ratio < min_inlier_ratio_ ||
+    fitness_score > max_fitness_score_ || translation_update > max_translation_update_ ||
+    rotation_update > max_rotation_update_) {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Rejected GICP update: inliers=%zu/%zu ratio=%.3f fitness=%.3f d_trans=%.3f "
+      "d_rot=%.1fdeg",
+      result.num_inliers, source_->size(), inlier_ratio, fitness_score, translation_update,
+      rotation_update * 180.0 / std::acos(-1.0));
+    return;
+  }
+
+  result_t_ = previous_result_t_ = result.T_target_source;
+
+  pcl::PointCloud<pcl::PointXYZ> source_xyz;
+  source_xyz.reserve(source_->size());
+  for (const auto & point : source_->points) {
+    source_xyz.emplace_back(point.x, point.y, point.z);
+  }
+
+  pcl::PointCloud<pcl::PointXYZ> aligned_scan;
+  pcl::transformPointCloud(source_xyz, aligned_scan, result.T_target_source.matrix());
+
+  sensor_msgs::msg::PointCloud2 aligned_msg;
+  pcl::toROSMsg(aligned_scan, aligned_msg);
+  aligned_msg.header.stamp = last_scan_time_.nanoseconds() == 0 ? this->now() : last_scan_time_;
+  aligned_msg.header.frame_id = map_frame_;
+  aligned_scan_pub_->publish(aligned_msg);
+
+  RCLCPP_INFO_THROTTLE(
+    this->get_logger(), *this->get_clock(), 2000,
+    "Accepted GICP update: inliers=%zu/%zu ratio=%.3f fitness=%.3f d_trans=%.3f "
+    "d_rot=%.1fdeg",
+    result.num_inliers, source_->size(), inlier_ratio, fitness_score, translation_update,
+    rotation_update * 180.0 / std::acos(-1.0));
 }
 
 void SmallGicpRelocalizationNode::publishTransform()
@@ -194,7 +330,8 @@ void SmallGicpRelocalizationNode::publishTransform()
 
   geometry_msgs::msg::TransformStamped transform_stamped;
   // `+ 0.1` means transform into future. according to https://robotics.stackexchange.com/a/96615
-  transform_stamped.header.stamp = last_scan_time_ + rclcpp::Duration::from_seconds(0.1);
+  const rclcpp::Time stamp = last_scan_time_.nanoseconds() == 0 ? this->now() : last_scan_time_;
+  transform_stamped.header.stamp = stamp + rclcpp::Duration::from_seconds(0.1);
   transform_stamped.header.frame_id = map_frame_;
   transform_stamped.child_frame_id = odom_frame_;
 
@@ -219,25 +356,26 @@ void SmallGicpRelocalizationNode::initialPoseCallback(
     this->get_logger(), "Received initial pose: [x: %f, y: %f, z: %f]", msg->pose.pose.position.x,
     msg->pose.pose.position.y, msg->pose.pose.position.z);
 
-  Eigen::Isometry3d map_to_robot_base = Eigen::Isometry3d::Identity();
-  map_to_robot_base.translation() << msg->pose.pose.position.x, msg->pose.pose.position.y,
-    msg->pose.pose.position.z;
-  map_to_robot_base.linear() = Eigen::Quaterniond(
-                                 msg->pose.pose.orientation.w, msg->pose.pose.orientation.x,
-                                 msg->pose.pose.orientation.y, msg->pose.pose.orientation.z)
-                                 .toRotationMatrix();
+  const Eigen::Quaterniond map_to_robot_base_rotation(
+    msg->pose.pose.orientation.w, msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+    msg->pose.pose.orientation.z);
+  const Eigen::Isometry3d map_to_robot_base = makePlanarTransform(
+    msg->pose.pose.position.x, msg->pose.pose.position.y,
+    planarYaw(map_to_robot_base_rotation.toRotationMatrix()));
 
   try {
     auto transform =
-      tf_buffer_->lookupTransform(robot_base_frame_, current_scan_frame_id_, tf2::TimePointZero);
-    Eigen::Isometry3d robot_base_to_odom = tf2::transformToEigen(transform.transform);
-    Eigen::Isometry3d map_to_odom = map_to_robot_base * robot_base_to_odom;
+      tf_buffer_->lookupTransform(odom_frame_, robot_base_frame_, tf2::TimePointZero);
+    Eigen::Isometry3d odom_to_robot_base = projectToPlanar(
+      tf2::transformToEigen(transform.transform));
+    Eigen::Isometry3d map_to_odom = map_to_robot_base * odom_to_robot_base.inverse();
 
+    initial_pose_received_ = true;
     previous_result_t_ = result_t_ = map_to_odom;
   } catch (tf2::TransformException & ex) {
     RCLCPP_WARN(
       this->get_logger(), "Could not transform initial pose from %s to %s: %s",
-      robot_base_frame_.c_str(), current_scan_frame_id_.c_str(), ex.what());
+      odom_frame_.c_str(), robot_base_frame_.c_str(), ex.what());
   }
 }
 

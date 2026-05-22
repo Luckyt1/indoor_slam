@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1779105423749,
+  "lastScanned": 1779435411009,
   "projectRoot": "/home/tang/github/indoor_slam",
   "techStack": {
     "languages": [],
@@ -35,7 +35,7 @@
       "path": "build",
       "purpose": "Build output",
       "fileCount": 3,
-      "lastAccessed": 1779105423746,
+      "lastAccessed": 1779435411006,
       "keyFiles": [
         "COLCON_IGNORE",
         "compile_commands.json"
@@ -45,14 +45,14 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 0,
-      "lastAccessed": 1779105423748,
+      "lastAccessed": 1779435411007,
       "keyFiles": []
     },
     "install": {
       "path": "install",
       "purpose": null,
       "fileCount": 12,
-      "lastAccessed": 1779105423748,
+      "lastAccessed": 1779435411008,
       "keyFiles": [
         "COLCON_IGNORE",
         "_local_setup_util_ps1.py",
@@ -65,7 +65,7 @@
       "path": "log",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1779105423749,
+      "lastAccessed": 1779435411008,
       "keyFiles": [
         "COLCON_IGNORE"
       ]
@@ -73,30 +73,31 @@
     "maps": {
       "path": "maps",
       "purpose": null,
-      "fileCount": 8,
-      "lastAccessed": 1779105423749,
+      "fileCount": 10,
+      "lastAccessed": 1779435411008,
       "keyFiles": [
+        "filtered_map.pgm",
+        "filtered_map.yaml",
         "indoor_map.pgm",
         "indoor_map.yaml",
-        "indoor_map_cropped.pgm",
-        "indoor_map_cropped.yaml",
-        "indoor_map_no_trail.pgm"
+        "indoor_map_cropped.pgm"
       ]
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1779105423749,
+      "lastAccessed": 1779435411008,
       "keyFiles": []
     },
     "tools": {
       "path": "tools",
       "purpose": null,
-      "fileCount": 1,
-      "lastAccessed": 1779105423749,
+      "fileCount": 2,
+      "lastAccessed": 1779435411008,
       "keyFiles": [
-        "pcd_to_occupancy_grid.py"
+        "pcd_to_occupancy_grid.py",
+        "scans_3.pcd"
       ]
     }
   },

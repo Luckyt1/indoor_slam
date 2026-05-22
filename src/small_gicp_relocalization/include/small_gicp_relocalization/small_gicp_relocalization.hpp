@@ -45,6 +45,7 @@ private:
   void loadGlobalMap(const std::string & file_name);
   void performRegistration();
   void publishTransform();
+  void publishGlobalMap();
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
@@ -52,9 +53,17 @@ private:
 
   int num_threads_;
   int num_neighbors_;
+  int min_source_points_;
   float global_leaf_size_;
   float registered_leaf_size_;
   float max_dist_sq_;
+  double min_inlier_ratio_;
+  double max_fitness_score_;
+  double max_translation_update_;
+  double max_rotation_update_;
+  bool require_initial_pose_;
+  bool initial_pose_received_;
+  bool has_global_map_msg_;
   std::vector<double> init_pose_;
 
   std::string map_frame_;
@@ -83,10 +92,16 @@ private:
 
   rclcpp::TimerBase::SharedPtr transform_timer_;
   rclcpp::TimerBase::SharedPtr register_timer_;
+  rclcpp::TimerBase::SharedPtr global_map_timer_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr current_scan_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_scan_pub_;
+  sensor_msgs::msg::PointCloud2 global_map_msg_;
 };
 
 }  // namespace small_gicp_relocalization

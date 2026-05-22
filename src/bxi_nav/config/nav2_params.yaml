@@ -89,44 +89,146 @@ controller_server:
       yaw_goal_tolerance: 0.25
 
     FollowPath:
-      plugin: dwb_core::DWBLocalPlanner
-      debug_trajectory_details: false
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      max_vel_x: 1.0
-      max_vel_y: 0.0
-      max_vel_theta: 1.0
-      min_speed_xy: 0.0
-      max_speed_xy: 1.0
-      min_speed_theta: 0.0
-      acc_lim_x: 0.6
-      acc_lim_y: 0.0
-      acc_lim_theta: 1.5
-      decel_lim_x: -0.8
-      decel_lim_y: 0.0
-      decel_lim_theta: -1.5
-      vx_samples: 20
-      vy_samples: 1
-      vtheta_samples: 20
-      sim_time: 2.0
-      linear_granularity: 0.05
-      angular_granularity: 0.025
-      transform_tolerance: 0.3
-      xy_goal_tolerance: 0.25
-      trans_stopped_velocity: 0.08
-      short_circuit_trajectory_evaluation: true
-      stateful: true
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.04
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      # Nav2 控制器插件类型。
+      plugin: "pid_path_follower::PidPathFollower"
+      # 在选中的局部路径上向前看的距离，作为 PID 跟踪目标点。
+      lookahead_distance: 0.6
+      # 备用全局路径跟踪逻辑使用的路径裁剪距离。
+      prune_distance: 0.35
+      # TF 查询超时时间，单位秒。
+      transform_tolerance: 0.2
+      # 线速度 PID 的比例系数。
+      linear_kp: 2.8
+      # 线速度 PID 的积分系数。
+      linear_ki: 0.0
+      # 线速度 PID 的微分系数。
+      linear_kd: 0.05
+      # 角速度 PID 的比例系数。
+      angular_kp: 2.0
+      # 角速度 PID 的积分系数。
+      angular_ki: 0.01
+      # 角速度 PID 的微分系数。
+      angular_kd: 0.05
+      # 线速度 PID 积分项的绝对限幅。
+      linear_integral_limit: 0.5
+      # 角速度 PID 积分项的绝对限幅。
+      angular_integral_limit: 1.0
+      # 最大前进线速度，单位 m/s。
+      max_linear_velocity: 1.0
+      # 非零线速度的最小值，单位 m/s。
+      min_linear_velocity: 0.0
+      # 最大角速度，单位 rad/s。
+      max_angular_velocity: 3.0
+      # 最大线加速度，单位 m/s^2。
+      max_linear_accel: 1.0
+      # 最大角加速度，单位 rad/s^2。
+      max_angular_accel: 3.2
+      # 距离最终目标点小于该值时开始降低线速度。
+      goal_slowdown_radius: 0.8
+      # 距离最终目标点小于该值时开始对齐目标朝向。
+      rotate_to_goal_distance: 0.4
+      # 航向误差大于该值时抑制前进速度，优先转向。
+      rotate_to_heading_threshold: 0.8
+      # 是否启用点云碰撞检测和局部路径选择。
+      collision_enabled: True
+      # 用于局部碰撞检测的点云话题。
+      collision_cloud_topic: /cloud_registered
+      # 允许使用的最新点云最大延迟，单位秒。
+      collision_cloud_timeout: 1.0
+      # 点云超时后是否强制停车。
+      stop_on_stale_cloud: False
+      # 碰撞检测点云的体素降采样尺寸，单位米。
+      collision_voxel_size: 0.05
+      # 保留机器人周围多大半径内的点云用于碰撞检测，单位米。
+      collision_adjacent_range: 3.0
+      # 备用全局路径走廊碰撞检测的前向检查距离，单位米。
+      collision_check_distance: 1.2
+      # 最近障碍物距离小于该值时开始减速。
+      collision_slow_distance: 1.2
+      # 最近障碍物距离小于该值时停止前进。
+      collision_stop_distance: 0.45
+      # 遇到障碍减速时允许的最小速度比例。
+      collision_min_speed_scale: 0.2
+      # 碰撞检测时在车体半宽外额外增加的横向安全距离，单位米。
+      collision_lateral_margin: 0.08
+      # 点云点相对 base frame 的最小有效高度，单位米。
+      collision_min_z: -1.0
+      # 点云点相对 base frame 的最大有效高度，单位米。
+      collision_max_z: 0.8
+      # 忽略机器人后方超过该距离的点云，单位米。
+      collision_rear_margin: 0.1
+      # 局部路径碰撞检测使用的车体长度，单位米。
+      vehicle_length: 0.6
+      # 局部路径碰撞检测使用的车体宽度，单位米。
+      vehicle_width: 0.6
+      # 候选路径被判定为阻塞所需的障碍点命中数量。
+      collision_point_threshold: 2
+      # 是否启用 local_planner 风格的路径库候选路径选择。
+      use_path_library: True
+      # 是否优先使用 local_costmap 做局部 A* 规划；开启后 PID 跟踪 local_costmap 规划出的局部路径。
+      use_local_costmap_planner: False
+      # 当不使用 local_costmap A* 时，是否把 local_costmap 的障碍栅格也加入点云障碍，让 free_path 避开。
+      use_local_costmap_obstacles: True
+      # 当 free_path 长时间找不到时，是否自动降级为 local_costmap A*。
+      fallback_to_local_costmap_on_no_free_path: True
+      # local_costmap 中 unknown 栅格是否允许通过；False 表示 unknown 当障碍处理。
+      local_costmap_allow_unknown: False
+      # 是否发布 local_costmap 局部 A* 路径，便于 RViz 调试。
+      publish_local_costmap_path: True
+      # local_costmap 局部 A* 的目标距离，会在全局路径上截取该距离附近的目标点。
+      local_costmap_goal_distance: 1.5
+      # local_costmap 栅格代价权重，越大越倾向远离高代价区域。
+      local_costmap_cost_weight: 3.0
+      # 连续找不到 free_path 多久后启用 A* 降级，单位秒。
+      no_free_path_fallback_delay: 2.0
+      # 进入 A* 降级后至少保持多久再尝试回到 free_path，单位秒。
+      fallback_min_duration: 3.0
+      # local_costmap 中大于等于该值的栅格视为不可通行。
+      local_costmap_lethal_cost: 253
+      # local_costmap 局部 A* 路径发布话题。
+      local_costmap_path_topic: /local_plan
+      # 是否允许选择倒车方向的局部路径。
+      two_way_drive: False
+      # 是否检查会阻碍原地旋转的障碍物。
+      check_rot_obstacle: True
+      # 生成局部路径模板时使用的默认缩放比例。
+      path_scale: 0.5
+      # 搜索候选路径时允许的最小路径缩放比例。
+      min_path_scale: 0.3
+      # 找不到候选路径时每次降低的路径缩放步长。
+      path_scale_step: 0.1
+      # 是否根据当前速度缩放局部路径长度。
+      path_scale_by_speed: False
+      # 局部路径检查范围的最小值，单位米。
+      min_path_range: 0.5
+      # 找不到候选路径时每次降低的路径检查范围步长。
+      path_range_step: 0.5
+      # 是否根据当前速度缩放局部路径检查范围。
+      path_range_by_speed: False
+      # 是否按最终目标点距离裁剪局部路径。
+      path_crop_by_goal: False
+      # 给可通行候选路径打分时的方向偏好权重。
+      dir_weight: 0.2
+      # 候选路径允许偏离目标方向的最大角度，单位度。
+      dir_threshold_deg: 120.0
+      # 是否以车体朝向为基准进行方向筛选。
+      dir_to_vehicle: True
+      # 裁剪局部路径时，最终目标点附近额外保留的距离。
+      goal_clear_range: 0.5
+      # 是否发布可通行候选路径的可视化点云。
+      visualize_free_paths: True
+      # 可通行候选路径可视化点云的话题。
+      free_paths_topic: /free_paths
+      # 可视化点云的最小发布周期，单位秒。
+      free_paths_publish_period: 0.2
+      # 局部路径重新选择的周期，单位秒；控制器高频跟踪缓存结果。
+      local_path_update_period: 0.2
+      # 候选路径旋转角度步长；1 表示每 10 度检测一次，3 表示每 30 度。
+      candidate_rotation_step: 1
+      # 可视化路径旋转角度步长；3 表示每 30 度显示一组触手。
+      free_paths_rotation_step: 3
+      # 加载 paths.ply 做可视化时的点跳过数量，用于减少 RViz 压力。
+      free_paths_point_skip: 30
 
 local_costmap:
   local_costmap:
@@ -146,7 +248,8 @@ local_costmap:
         observation_sources: scan
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          max_obstacle_height: 0.4
+          min_obstacle_height: -0.8
           clearing: true
           marking: true
           data_type: "LaserScan"
@@ -176,7 +279,7 @@ global_costmap:
         map_subscribe_transient_local: true
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.55
+        inflation_radius: 0.20
         cost_scaling_factor: 3.0
       always_send_full_costmap: true
 
