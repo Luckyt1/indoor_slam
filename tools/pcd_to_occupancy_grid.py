@@ -37,7 +37,7 @@ def read_binary_pcd_xyz(path: Path) -> tuple[np.ndarray, list[str]]:
         key = parts[0]
         if key == "FIELDS":
             fields = parts[1:]
-        elif key == "SIZE":ce
+        elif key == "SIZE":
             sizes = [int(v) for v in parts[1:]]
         elif key == "TYPE":
             types = parts[1:]
