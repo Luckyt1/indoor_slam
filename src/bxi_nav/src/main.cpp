@@ -20,7 +20,7 @@ int main(int argc, char ** argv)
 
   const auto cloud_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/cloud_registered", 10,
-    [logger = node->get_logger()](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+    [](const sensor_msgs::msg::PointCloud2::SharedPtr) {
       // *temp_cloud_msg = *msg;
     });
 

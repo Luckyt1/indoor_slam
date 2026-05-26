@@ -171,6 +171,10 @@ private:
     double by,
     double & segment_fraction) const;
   void warnCollisionThrottled(const CollisionResult & collision);
+  void publishObstacleCloud(
+    const geometry_msgs::msg::PoseStamped & robot_pose,
+    const std::vector<LocalPoint> & obstacle_points,
+    const CollisionResult & collision);
 
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_;
   std::shared_ptr<tf2_ros::Buffer> tf_;
@@ -284,12 +288,17 @@ private:
     free_paths_pub_;
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr
     local_path_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::PointCloud2>::SharedPtr
+    obstacle_debug_pub_;
   sensor_msgs::msg::PointCloud2::ConstSharedPtr latest_obstacle_cloud_;
   rclcpp::Time latest_obstacle_cloud_receive_time_;
   std::uint64_t latest_obstacle_cloud_version_{0};
   mutable std::mutex obstacle_cloud_mutex_;
   rclcpp::Time last_collision_warn_time_;
   rclcpp::Time last_free_paths_publish_time_;
+
+  bool visualize_obstacle_cloud_{false};
+  std::string obstacle_cloud_debug_topic_{"/obstacle_cloud_debug"};
 };
 
 }  // namespace pid_path_follower

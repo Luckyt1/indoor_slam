@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1779435411009,
+  "lastScanned": 1779539961907,
   "projectRoot": "/home/tang/github/indoor_slam",
   "techStack": {
     "languages": [],
@@ -35,7 +35,7 @@
       "path": "build",
       "purpose": "Build output",
       "fileCount": 3,
-      "lastAccessed": 1779435411006,
+      "lastAccessed": 1779539961904,
       "keyFiles": [
         "COLCON_IGNORE",
         "compile_commands.json"
@@ -45,14 +45,14 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 0,
-      "lastAccessed": 1779435411007,
+      "lastAccessed": 1779539961906,
       "keyFiles": []
     },
     "install": {
       "path": "install",
       "purpose": null,
       "fileCount": 12,
-      "lastAccessed": 1779435411008,
+      "lastAccessed": 1779539961906,
       "keyFiles": [
         "COLCON_IGNORE",
         "_local_setup_util_ps1.py",
@@ -65,7 +65,7 @@
       "path": "log",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1779435411008,
+      "lastAccessed": 1779539961906,
       "keyFiles": [
         "COLCON_IGNORE"
       ]
@@ -73,34 +73,66 @@
     "maps": {
       "path": "maps",
       "purpose": null,
-      "fileCount": 10,
-      "lastAccessed": 1779435411008,
-      "keyFiles": [
-        "filtered_map.pgm",
-        "filtered_map.yaml",
-        "indoor_map.pgm",
-        "indoor_map.yaml",
-        "indoor_map_cropped.pgm"
-      ]
+      "fileCount": 0,
+      "lastAccessed": 1779539961907,
+      "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1779435411008,
+      "lastAccessed": 1779539961907,
       "keyFiles": []
     },
     "tools": {
       "path": "tools",
       "purpose": null,
-      "fileCount": 2,
-      "lastAccessed": 1779435411008,
+      "fileCount": 3,
+      "lastAccessed": 1779539961907,
       "keyFiles": [
         "pcd_to_occupancy_grid.py",
-        "scans_3.pcd"
+        "scans_3.pcd",
+        "scans_4.pcd"
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "src/pid_path_follower/src/pid_path_follower.cpp",
+      "accessCount": 10,
+      "lastAccessed": 1779610814200,
+      "type": "file"
+    },
+    {
+      "path": "src/bxi_nav/config/nav2_params.yaml",
+      "accessCount": 6,
+      "lastAccessed": 1779544588410,
+      "type": "file"
+    },
+    {
+      "path": "src/pid_path_follower/include/pid_path_follower/pid_path_follower.hpp",
+      "accessCount": 4,
+      "lastAccessed": 1779544432112,
+      "type": "file"
+    },
+    {
+      "path": "src/bxi_nav/launch/indoor_navigation_launch.py",
+      "accessCount": 3,
+      "lastAccessed": 1779614326569,
+      "type": "file"
+    },
+    {
+      "path": "src/Point-LIO/config/mid360.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1779614181838,
+      "type": "file"
+    },
+    {
+      "path": "src/bxi_nav/src/main.cpp",
+      "accessCount": 1,
+      "lastAccessed": 1779540015017,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

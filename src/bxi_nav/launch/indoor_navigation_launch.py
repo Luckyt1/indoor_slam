@@ -35,7 +35,6 @@ def generate_launch_description():
         'rviz',
         'nav2_default_view.rviz'
     )
-
     return LaunchDescription([
         DeclareLaunchArgument(
             'map',
@@ -61,6 +60,25 @@ def generate_launch_description():
             'rviz',
             default_value='true',
             description='Whether to start RViz'
+        ),
+        # body_raw → base_link：把 Point-LIO 输出的物理帧修正为 REP-103 标准帧。
+        # Point-LIO 现在发布 odom → body_raw（倒置朝向）。
+        # 绕 x 轴转 180° 对应雷达倒扣安装（roll=π）。
+        # 如果修正后方向仍不对，用 ros2 run tf2_ros tf2_echo odom body_raw 确认
+        # 当前旋转，然后调整 roll/pitch/yaw 参数。
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='body_raw_to_base_link',
+            output='screen',
+            arguments=[
+                '--x', '0', '--y', '0', '--z', '0',
+                '--roll', '3.14159265',
+                '--pitch', '0',
+                '--yaw', '0',
+                '--frame-id', 'body_raw',
+                '--child-frame-id', 'base_link',
+            ]
         ),
         Node(
             package='nav2_map_server',

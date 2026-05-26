@@ -51,7 +51,7 @@ def generate_launch_description():
                 "odom_frame": "odom",
                 "base_frame": "",
                 "robot_base_frame": "base_link",
-                "lidar_frame": "",
+                "lidar_frame": "base_raw",
                 "prior_pcd_file": prior_pcd_file,
                 "input_cloud_topic": "cloud_registered",
             }
@@ -61,7 +61,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "prior_pcd_file",
-            default_value="/home/tang/github/indoor_slam/maps/PCD/scans_4.pcd",
+            default_value="maps/PCD/scans.pcd",
             description="PCD map file to load and publish for relocalization visualization",
         ),
         node,

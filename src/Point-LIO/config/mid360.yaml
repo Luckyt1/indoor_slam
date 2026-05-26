@@ -64,7 +64,7 @@
             scan_bodyframe_pub_en: True                     # True: output the point cloud scans in IMU-body-frame
             tf_send_en: True                                # True: publish odometry TF
             world_frame: "odom"                             # Point-LIO local frame; relocalization publishes map -> odom
-            body_frame: "base_link"                         # Robot/body frame under odom
+            body_frame: "body_raw"                          # Robot/body frame under odom; corrected to base_link via static TF
 
         pcd_save:
             pcd_save_en: True

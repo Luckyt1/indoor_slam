@@ -80,6 +80,11 @@ void PidPathFollower::configure(
             node_->create_publisher<nav_msgs::msg::Path>(
                 local_costmap_path_topic_, rclcpp::QoS(1));
     }
+    if (visualize_obstacle_cloud_) {
+        obstacle_debug_pub_ =
+            node_->create_publisher<sensor_msgs::msg::PointCloud2>(
+                obstacle_cloud_debug_topic_, rclcpp::QoS(1));
+    }
 
     RCLCPP_INFO(node_->get_logger(),
                 "Configured PID path follower '%s' with collision cloud '%s'",
@@ -106,6 +111,7 @@ void PidPathFollower::cleanup()
     obstacle_cloud_sub_.reset();
     free_paths_pub_.reset();
     local_path_pub_.reset();
+    obstacle_debug_pub_.reset();
     {
         std::lock_guard<std::mutex> lock(obstacle_cloud_mutex_);
         latest_obstacle_cloud_.reset();
@@ -121,6 +127,9 @@ void PidPathFollower::activate()
     if (local_path_pub_) {
         local_path_pub_->on_activate();
     }
+    if (obstacle_debug_pub_) {
+        obstacle_debug_pub_->on_activate();
+    }
     resetPid();
 }
 
@@ -131,6 +140,9 @@ void PidPathFollower::deactivate()
     }
     if (local_path_pub_) {
         local_path_pub_->on_deactivate();
+    }
+    if (obstacle_debug_pub_) {
+        obstacle_debug_pub_->on_deactivate();
     }
     resetPid();
 }
@@ -335,6 +347,7 @@ geometry_msgs::msg::TwistStamped PidPathFollower::computeVelocityCommands(
                 cached_collision_.point_count =
                     static_cast<int>(obstacle_points.size());
             }
+            publishObstacleCloud(pose, obstacle_points, cached_collision_);
             last_local_path_update_time_ = now;
             has_cached_selection_ = true;
         }
@@ -364,6 +377,7 @@ geometry_msgs::msg::TwistStamped PidPathFollower::computeVelocityCommands(
                                           obstacle_points);
         collision.has_cloud = has_cloud;
         collision.stale_cloud = stale_cloud;
+        publishObstacleCloud(pose, obstacle_points, collision);
     }
 
     double dt = 1.0 / 20.0;
@@ -624,6 +638,10 @@ void PidPathFollower::declareParameters()
     visualize_free_paths_ =
         declare_bool("visualize_free_paths", visualize_free_paths_);
     free_paths_topic_ = declare_string("free_paths_topic", free_paths_topic_);
+    visualize_obstacle_cloud_ =
+        declare_bool("visualize_obstacle_cloud", visualize_obstacle_cloud_);
+    obstacle_cloud_debug_topic_ =
+        declare_string("obstacle_cloud_debug_topic", obstacle_cloud_debug_topic_);
     free_paths_publish_period_ =
         declare_double("free_paths_publish_period", free_paths_publish_period_);
     local_path_update_period_ =
@@ -2072,6 +2090,56 @@ void PidPathFollower::warnCollisionThrottled(const CollisionResult &collision)
                 "Point cloud collision on path: nearest %.2f m, points %d%s",
                 collision.nearest_distance, collision.point_count,
                 collision.footprint_blocked ? ", footprint blocked" : "");
+}
+
+void PidPathFollower::publishObstacleCloud(
+    const geometry_msgs::msg::PoseStamped &robot_pose,
+    const std::vector<LocalPoint> &obstacle_points,
+    const CollisionResult &collision)
+{
+    if (!obstacle_debug_pub_ ||
+        obstacle_debug_pub_->get_subscription_count() == 0) {
+        return;
+    }
+
+    sensor_msgs::msg::PointCloud2 cloud;
+    cloud.header.stamp = node_->now();
+    cloud.header.frame_id =
+        costmap_ros_ ? costmap_ros_->getBaseFrameID() : "base_link";
+
+    sensor_msgs::PointCloud2Modifier modifier(cloud);
+    modifier.setPointCloud2Fields(
+        4,
+        "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+        "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
+    modifier.resize(obstacle_points.size());
+
+    const double half_length = vehicle_length_ * 0.5;
+    const double half_width = vehicle_width_ * 0.5 + collision_lateral_margin_;
+
+    sensor_msgs::PointCloud2Iterator<float> iter_x(cloud, "x");
+    sensor_msgs::PointCloud2Iterator<float> iter_y(cloud, "y");
+    sensor_msgs::PointCloud2Iterator<float> iter_z(cloud, "z");
+    sensor_msgs::PointCloud2Iterator<float> iter_i(cloud, "intensity");
+
+    for (const auto &p : obstacle_points) {
+        *iter_x = static_cast<float>(p.x);
+        *iter_y = static_cast<float>(p.y);
+        *iter_z = static_cast<float>(p.z);
+        // intensity 1.0 = 在 footprint 内（会触发完全冻结）
+        // intensity 0.5 = 在路径上（会触发减速/停止）
+        const bool in_footprint =
+            p.x >= -half_length && p.x <= half_length &&
+            std::abs(p.y) <= half_width;
+        *iter_i = in_footprint ? 1.0f : 0.5f;
+        ++iter_x; ++iter_y; ++iter_z; ++iter_i;
+    }
+
+    (void)robot_pose;
+    (void)collision;
+    obstacle_debug_pub_->publish(cloud);
 }
 
 } // namespace pid_path_follower
