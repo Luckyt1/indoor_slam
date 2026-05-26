@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1779539961907,
+  "lastScanned": 1779784281337,
   "projectRoot": "/home/tang/github/indoor_slam",
   "techStack": {
     "languages": [],
@@ -35,7 +35,7 @@
       "path": "build",
       "purpose": "Build output",
       "fileCount": 3,
-      "lastAccessed": 1779539961904,
+      "lastAccessed": 1779784281331,
       "keyFiles": [
         "COLCON_IGNORE",
         "compile_commands.json"
@@ -45,14 +45,14 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 0,
-      "lastAccessed": 1779539961906,
+      "lastAccessed": 1779784281334,
       "keyFiles": []
     },
     "install": {
       "path": "install",
       "purpose": null,
       "fileCount": 12,
-      "lastAccessed": 1779539961906,
+      "lastAccessed": 1779784281335,
       "keyFiles": [
         "COLCON_IGNORE",
         "_local_setup_util_ps1.py",
@@ -65,7 +65,7 @@
       "path": "log",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1779539961906,
+      "lastAccessed": 1779784281335,
       "keyFiles": [
         "COLCON_IGNORE"
       ]
@@ -74,25 +74,25 @@
       "path": "maps",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1779539961907,
+      "lastAccessed": 1779784281335,
       "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1779539961907,
+      "lastAccessed": 1779784281336,
       "keyFiles": []
     },
     "tools": {
       "path": "tools",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1779539961907,
+      "lastAccessed": 1779784281336,
       "keyFiles": [
+        "indoor_wall_only.pgm",
         "pcd_to_occupancy_grid.py",
-        "scans_3.pcd",
-        "scans_4.pcd"
+        "scans.pcd"
       ]
     }
   },
