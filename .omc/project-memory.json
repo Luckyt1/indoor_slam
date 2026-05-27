@@ -128,9 +128,27 @@
       "type": "file"
     },
     {
+      "path": "tools/pcd_to_occupancy_grid.py",
+      "accessCount": 2,
+      "lastAccessed": 1779784748362,
+      "type": "file"
+    },
+    {
       "path": "src/bxi_nav/src/main.cpp",
       "accessCount": 1,
       "lastAccessed": 1779540015017,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1779784599186,
+      "type": "file"
+    },
+    {
+      "path": "tools/map_ws_streamer.py",
+      "accessCount": 1,
+      "lastAccessed": 1779858844792,
       "type": "file"
     }
   ],

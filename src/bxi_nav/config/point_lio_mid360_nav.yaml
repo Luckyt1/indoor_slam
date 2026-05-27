@@ -46,6 +46,8 @@
             plane_thr: 0.1
             match_s: 70.0
             ivox_grid_resolution: 0.5
+            filter_rear_points: False
+            rear_filter_angle_deg: 145.0
             gravity: [0.0, 0.0, -9.81]
             gravity_init: [0.0, 0.0, -9.810]
             extrinsic_T: [-0.011, -0.02329, 0.04412]
@@ -66,4 +68,5 @@
 
         pcd_save:
             pcd_save_en: True
+            filter_en: F                               # True: save time-consistent static map; False: save accumulated scans without static filtering
             interval: -1

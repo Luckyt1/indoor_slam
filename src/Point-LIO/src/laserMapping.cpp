@@ -305,6 +305,24 @@ PointCloudXYZI::Ptr buildStaticMapCloud()
   return cloud;
 }
 
+void accumulatePcdSaveCloud(const PointCloudXYZI & cloud)
+{
+  if (pcd_save_filter_en) {
+    accumulateStaticMapFrame(cloud);
+  } else {
+    *pcl_wait_save += cloud;
+  }
+}
+
+PointCloudXYZI::Ptr buildPcdSaveCloud()
+{
+  if (pcd_save_filter_en) {
+    return buildStaticMapCloud();
+  }
+
+  return pcl_wait_save;
+}
+
 bool saveScansPcd(const PointCloudXYZI & cloud)
 {
   const std::filesystem::path pcd_path = std::filesystem::path(ROOT_DIR) / "PCD" / "scans.pcd";
@@ -338,11 +356,11 @@ void publish_frame_world(
   // 1. make sure you have enough memories
   // 2. noted that pcd save will influence the real-time performances
   if (pcd_save_en) {
-    accumulateStaticMapFrame(*map_cloud);
-    PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
+    accumulatePcdSaveCloud(*map_cloud);
+    PointCloudXYZI::Ptr pcd_cloud = buildPcdSaveCloud();
 
-    if (!static_cloud->empty()) {
-      saveScansPcd(*static_cloud);
+    if (pcd_save_filter_en && !pcd_cloud->empty()) {
+      saveScansPcd(*pcd_cloud);
     }
   }
 }
@@ -1152,11 +1170,11 @@ int main(int argc, char ** argv)
   /* 1. make sure you have enough memories
     /* 2. noted that pcd save will influence the real-time performences **/
   if (pcd_save_en) {
-    PointCloudXYZI::Ptr static_cloud = buildStaticMapCloud();
-    if (!static_cloud->empty()) {
-      saveScansPcd(*static_cloud);
+    PointCloudXYZI::Ptr pcd_cloud = buildPcdSaveCloud();
+    if (!pcd_cloud->empty()) {
+      saveScansPcd(*pcd_cloud);
     } else {
-      RCLCPP_WARN(LOGGER, "No time-consistent static points to save.");
+      RCLCPP_WARN(LOGGER, "No points to save.");
     }
   }
   fout_out.close();

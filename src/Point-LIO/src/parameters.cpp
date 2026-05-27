@@ -32,6 +32,7 @@ int lidar_type, pcd_save_interval;
 std::vector<double> gravity_init, gravity;
 bool runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
 bool scan_pub_en, scan_body_pub_en, tf_send_en;
+bool pcd_save_filter_en = true;
 bool filter_rear_points = false;
 double rear_filter_angle_deg = 145.0;
 shared_ptr<Preprocess> p_pre;
@@ -215,6 +216,9 @@ void readParameters(std::shared_ptr<rclcpp::Node> & nh)
 
     nh->declare_parameter<int>("pcd_save.interval", -1);
     nh->get_parameter("pcd_save.interval", pcd_save_interval);
+
+    nh->declare_parameter<bool>("pcd_save.filter_en", true);
+    nh->get_parameter("pcd_save.filter_en", pcd_save_filter_en);
 
     nh->declare_parameter<double>("mapping.lidar_time_inte", 0.1);
     nh->get_parameter("mapping.lidar_time_inte", lidar_time_inte);
