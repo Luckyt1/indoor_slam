@@ -89,7 +89,7 @@ controller_server:
     # 控制循环频率，单位 Hz。
     controller_frequency: 20.0
     # x 方向速度小于该阈值时视为 0，单位 m/s。
-    min_x_velocity_threshold: 0.001
+    min_x_velocity_threshold: 0.01
     # y 方向速度小于该阈值时视为 0，差速底盘通常不会使用横向速度。
     min_y_velocity_threshold: 0.5
     # 角速度小于该阈值时视为 0，单位 rad/s。
@@ -196,9 +196,9 @@ controller_server:
       # 忽略机器人后方超过该距离的点云，单位米。
       collision_rear_margin: 0.6
       # 局部路径碰撞检测使用的车体长度，单位米。
-      vehicle_length: 0.6
+      vehicle_length: 0.8
       # 局部路径碰撞检测使用的车体宽度，单位米。
-      vehicle_width: 0.6
+      vehicle_width: 0.8
       # 候选路径被判定为阻塞所需的障碍点命中数量。
       collision_point_threshold: 2
       # 是否启用 local_planner 风格的路径库候选路径选择。
@@ -310,7 +310,7 @@ local_costmap:
           # 只接收低于该高度的障碍点，单位米。
           max_obstacle_height: 0.4
           # 只接收高于该高度的障碍点，单位米。
-          min_obstacle_height: -1.1
+          min_obstacle_height: -1.0
           # 是否用传感器射线清除视野内已不存在的障碍。
           clearing: true
           # 是否把扫描到的障碍写入代价地图。
@@ -327,7 +327,7 @@ local_costmap:
         # 使用 Nav2 的膨胀层插件，为障碍物周围生成安全缓冲区。
         plugin: "nav2_costmap_2d::InflationLayer"
         # 障碍物向外膨胀的半径，单位米。
-        inflation_radius: 0.4
+        inflation_radius: 0.2
         # 膨胀代价衰减系数；值越大，远离障碍后的代价下降越快。
         cost_scaling_factor: 3.0
 

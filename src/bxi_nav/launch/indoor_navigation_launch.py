@@ -125,8 +125,8 @@ def generate_launch_description():
                 'target_frame': 'base_link',
 
                 # 只取一定高度范围内的点，模拟2D雷达
-                'min_height': 0.00,
-                'max_height': 0.50,
+                'min_height': -1.0,
+                'max_height': 0.40,
 
                 # 360度扫描
                 'angle_min': -3.14159,
@@ -134,8 +134,8 @@ def generate_launch_description():
                 'angle_increment': 0.0087,
 
                 'scan_time': 0.1,
-                'range_min': 0.1,
-                'range_max': 20.0,
+                'range_min': 1.0,
+                'range_max': 10.0,
 
                 'use_inf': True,
                 'inf_epsilon': 1.0,
