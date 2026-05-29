@@ -113,6 +113,72 @@ def generate_launch_description():
             }.items()
         ),
         Node(
+            package='nav',
+            executable='terrain_analysis',
+            name='terrain_analysis',
+            output='screen',
+            parameters=[{
+                # 输入的里程计话题，用于获取机器人在 odom/map 中的位置和姿态。
+                'odometryTopic': '/aft_mapped_to_init',
+                # 输入的点云话题，来自 Point-LIO 配准后的点云。
+                'laserCloudTopic': '/cloud_registered',
+                # 输出的地形/障碍点云话题，供调试或下游模块使用。
+                'terrainMapTopic': '/terrain_map',
+                # 对输入点云做体素降采样的尺寸，单位米；越小保留点越多、计算量越大。
+                'scanVoxelSize': 0.05,
+                # 地形体素的时间衰减，超过该时间未更新的旧点会逐渐失效，单位秒。
+                'decayTime': 1.0,
+                # 初始化/清图后，机器人移动超过该距离前不启用 no-data 衰减，单位米。
+                'noDecayDis': 0.0,
+                # 手动清除地形点云时的清除半径，单位米。
+                'clearingDis': 8.0,
+                # 是否对体素内高度排序；开启后可用分位数估计地面高度。
+                'useSorting': False,
+                # 使用排序时选取的高度分位数，0.25 表示偏低的地面估计。
+                'quantileZ': 0.25,
+                # 是否考虑台阶/下落区域，避免把突然降低的区域误判为可通行地面。
+                'considerDrop': True,
+                # 是否限制地面高度在相邻更新中的上升幅度。
+                'limitGroundLift': False,
+                # 开启 limitGroundLift 时允许的最大地面抬升高度，单位米。
+                'maxGroundLift': 0.15,
+                # 是否清除动态障碍；开启后会按高度/视场/点数规则过滤移动物体。
+                'clearDyObs': True,
+                # 动态障碍判定的最小距离，单位米。
+                'minDyObsDis': 0.0,
+                # 动态障碍判定的最小角度阈值，单位度。
+                'minDyObsAngle': 0.0,
+                # 动态障碍相对地面的最小高度，单位米。
+                'minDyObsRelZ': 0.0,
+                # 动态障碍绝对相对高度阈值，单位米。
+                'absDyObsRelZThre': -0.7,
+                # 动态障碍判定的垂直视场下限，单位度。
+                'minDyObsVFOV': -16.0,
+                # 动态障碍判定的垂直视场上限，单位度。
+                'maxDyObsVFOV': 16.0,
+                # 判定动态障碍所需的最少点数。
+                'minDyObsPointNum': 5,
+                # 是否把无点云数据的区域视为障碍。
+                'noDataObstacle': False,
+                # no-data 障碍判定时跳过的空块数量，用于降低误报。
+                'noDataBlockSkipNum': 0,
+                # 一个地形块被认为有效所需的最少点数。
+                'minBlockPointNum': 5,
+                # 机器人高度，用于裁剪/判断与机器人相关的点云，单位米。
+                'vehicleHeight': 1.0,
+                # 单个体素累计到该点数后才触发地形更新。
+                'voxelPointUpdateThre': 50,
+                # 单个体素距离上次更新时间超过该阈值后允许再次更新，单位秒。
+                'voxelTimeUpdateThre': 1.0,
+                # 接收点云相对机器人高度的下限，单位米。
+                'minRelZ': -1.0,
+                # 接收点云相对机器人高度的上限，单位米。
+                'maxRelZ': 0.4,
+                # 随水平距离放宽高度裁剪范围的比例。
+                'disRatioZ': 0.2,
+            }]
+        ),
+        Node(
             package='pointcloud_to_laserscan',
             executable='pointcloud_to_laserscan_node',
             name='pointcloud_to_laserscan',

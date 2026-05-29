@@ -170,7 +170,7 @@ controller_server:
       # 是否启用点云碰撞检测和局部路径选择。
       collision_enabled: True
       # 用于局部碰撞检测的点云话题。
-      collision_cloud_topic: /cloud_registered
+      collision_cloud_topic: /terrain_map
       # 允许使用的最新点云最大延迟，单位秒。
       collision_cloud_timeout: 1.0
       # 点云超时后是否强制停车。
@@ -206,7 +206,7 @@ controller_server:
       # 是否优先使用 local_costmap 做局部 A* 规划；开启后 PID 跟踪 local_costmap 规划出的局部路径。
       use_local_costmap_planner: False
       # 当不使用 local_costmap A* 时，是否把 local_costmap 的障碍栅格也加入点云障碍，让 free_path 避开。
-      use_local_costmap_obstacles: True
+      use_local_costmap_obstacles: False
       # 当 free_path 长时间找不到时，是否自动降级为 local_costmap A*。
       fallback_to_local_costmap_on_no_free_path: True
       # local_costmap 中 unknown 栅格是否允许通过；False 表示 unknown 当障碍处理。
