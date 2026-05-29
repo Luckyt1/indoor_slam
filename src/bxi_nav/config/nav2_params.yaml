@@ -140,7 +140,7 @@ controller_server:
       # 线速度 PID 的积分系数。
       linear_ki: 0.0
       # 线速度 PID 的微分系数。
-      linear_kd: 0.1
+      linear_kd: 0.5
       # 角速度 PID 的比例系数。
       angular_kp: 2.5
       # 角速度 PID 的积分系数。
@@ -154,7 +154,7 @@ controller_server:
       # 最大前进线速度，单位 m/s。
       max_linear_velocity: 1.5
       # 非零线速度的最小值，单位 m/s。
-      min_linear_velocity: 0.0
+      min_linear_velocity: 0.1
       # 最大角速度，单位 rad/s。
       max_angular_velocity: 2.0
       # 最大线加速度，单位 m/s^2。
@@ -180,13 +180,13 @@ controller_server:
       # 保留机器人周围多大半径内的点云用于碰撞检测，单位米。
       collision_adjacent_range: 4.0
       # 备用全局路径走廊碰撞检测的前向检查距离，单位米。
-      collision_check_distance: 1.5
+      collision_check_distance: 0.5
       # 最近障碍物距离小于该值时开始减速。
-      collision_slow_distance: 2.0
+      collision_slow_distance: 0.5
       # 最近障碍物距离小于该值时停止前进。
-      collision_stop_distance: 0.6
+      collision_stop_distance: 0.1
       # 遇到障碍减速时允许的最小速度比例。
-      collision_min_speed_scale: 0.2
+      collision_min_speed_scale: 0.5
       # 碰撞检测时在车体半宽外额外增加的横向安全距离，单位米。
       collision_lateral_margin: 0.08
       # 点云点相对 base frame 的最小有效高度，单位米。
@@ -196,9 +196,9 @@ controller_server:
       # 忽略机器人后方超过该距离的点云，单位米。
       collision_rear_margin: 0.6
       # 局部路径碰撞检测使用的车体长度，单位米。
-      vehicle_length: 0.8
+      vehicle_length: 0.6
       # 局部路径碰撞检测使用的车体宽度，单位米。
-      vehicle_width: 0.8
+      vehicle_width: 0.6
       # 候选路径被判定为阻塞所需的障碍点命中数量。
       collision_point_threshold: 2
       # 是否启用 local_planner 风格的路径库候选路径选择。
@@ -289,9 +289,9 @@ local_costmap:
       # 开启滚动窗口，使局部地图始终以机器人附近区域为中心。
       rolling_window: true
       # 局部代价地图宽度，单位米。
-      width: 3
+      width: 4
       # 局部代价地图高度，单位米。
-      height: 3
+      height: 4
       # 栅格分辨率，单位米/格；0.05 表示每个栅格 5 cm。
       resolution: 0.05
       # 启用的代价地图图层：障碍物层负责标记/清除障碍，膨胀层负责安全距离扩张。
@@ -327,7 +327,7 @@ local_costmap:
         # 使用 Nav2 的膨胀层插件，为障碍物周围生成安全缓冲区。
         plugin: "nav2_costmap_2d::InflationLayer"
         # 障碍物向外膨胀的半径，单位米。
-        inflation_radius: 0.2
+        inflation_radius: 0.3
         # 膨胀代价衰减系数；值越大，远离障碍后的代价下降越快。
         cost_scaling_factor: 3.0
 
@@ -368,7 +368,7 @@ global_costmap:
         # 使用 Nav2 膨胀层插件。
         plugin: nav2_costmap_2d::InflationLayer
         # 全局障碍物膨胀半径，单位米。
-        inflation_radius: 0.20
+        inflation_radius: 0.30
         # 膨胀代价衰减系数；值越大，远离障碍后的代价下降越快。
         cost_scaling_factor: 3.0
       # 是否每次发布完整代价地图，而不是只发布增量更新。

@@ -24,7 +24,7 @@
             lidar_type: 1                                   # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR
             scan_line: 6
             timestamp_unit: 3                               # the unit of time/t field in the PointCloud2 rostopic: 0-second, 1-milisecond, 2-microsecond, 3-nanosecond.
-            blind: 0.4
+            blind: 0.3
 
         mapping:
             imu_en: True
@@ -47,7 +47,7 @@
             match_s: 70.0
             ivox_grid_resolution: 0.5
             filter_rear_points: False                      # Drop the rear sector from map building and PCD saving
-            rear_filter_angle_deg: 145.0                   # Total rear sector angle centered on -X in lidar/body frame
+            rear_filter_angle_deg: 100.0                   # Total rear sector angle centered on -X in lidar/body frame
             gravity: [ 0.0, 0.0, -9.81]                   # [0.0, 9.810, 0.0] # gravity to be aligned
             gravity_init: [ 0.0, 0.0, -9.810]              # [0.0, 9.810, 0.0] # # preknown gravity in the first IMU body frame, use when imu_en is False or start from a non-stationary state
             extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
@@ -67,7 +67,7 @@
             body_frame: "body_raw"                          # Robot/body frame under odom; corrected to base_link via static TF
 
         pcd_save:
-            pcd_save_en: false
-            filter_en: True                                 # True: save time-consistent static map; False: save accumulated scans without static filtering
+            pcd_save_en: True
+            filter_en: False                                # True: save time-consistent static map; False: save accumulated scans without static filtering
             interval: -1                                    # how many LiDAR frames saved in each pcd file;
                                                             # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
