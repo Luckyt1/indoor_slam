@@ -1,0 +1,13 @@
+build/
+.claude/
+.cache/
+.agents/
+.omx/
+.codex/
+install/
+log/
+data/
+compile_commands.json
+.clangd
+src/Point-LIO/PCD
+.omc/
