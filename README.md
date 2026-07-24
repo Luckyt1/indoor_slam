@@ -48,17 +48,9 @@ rosdep install --from-paths src --ignore-src -r -y
 
 ```bash
 source /opt/ros/humble/setup.bash
-colcon build --symlink-install
-source install/setup.bash
+cd src/livox_ros_driver2/
+bash build.sh humble
 ```
-
-只编译导航包：
-
-```bash
-colcon build --packages-select nav
-source install/setup.bash
-```
-
 ## 一键启动
 
 `start.sh` 会创建一个 `tmux` 会话，并按 4 个窗格启动完整系统：
