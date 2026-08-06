@@ -15,7 +15,9 @@
 #ifndef SMALL_GICP_RELOCALIZATION__SMALL_GICP_RELOCALIZATION_HPP_
 #define SMALL_GICP_RELOCALIZATION__SMALL_GICP_RELOCALIZATION_HPP_
 
+#include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -75,6 +77,9 @@ private:
   std::string current_scan_frame_id_;
   std::string input_cloud_topic_;
   rclcpp::Time last_scan_time_;
+  std::mutex scan_mutex_;
+  std::mutex pose_mutex_;
+  std::uint64_t pose_version_;
   Eigen::Isometry3d result_t_;
   Eigen::Isometry3d previous_result_t_;
 
@@ -82,10 +87,8 @@ private:
   pcl::PointCloud<pcl::PointXYZ>::Ptr registered_scan_;
   pcl::PointCloud<pcl::PointXYZ>::Ptr accumulated_cloud_;
   pcl::PointCloud<pcl::PointCovariance>::Ptr target_;
-  pcl::PointCloud<pcl::PointCovariance>::Ptr source_;
 
   std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> target_tree_;
-  std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> source_tree_;
   std::shared_ptr<
     small_gicp::Registration<small_gicp::GICPFactor, small_gicp::ParallelReductionOMP>>
     register_;
@@ -93,6 +96,12 @@ private:
   rclcpp::TimerBase::SharedPtr transform_timer_;
   rclcpp::TimerBase::SharedPtr register_timer_;
   rclcpp::TimerBase::SharedPtr global_map_timer_;
+
+  rclcpp::CallbackGroup::SharedPtr point_cloud_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr initial_pose_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr registration_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr transform_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr global_map_callback_group_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;

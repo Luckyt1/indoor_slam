@@ -55,6 +55,7 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
 : Node("small_gicp_relocalization", options),
   initial_pose_received_(false),
   has_global_map_msg_(false),
+  pose_version_(0),
   result_t_(Eigen::Isometry3d::Identity()),
   previous_result_t_(Eigen::Isometry3d::Identity())
 {
@@ -140,24 +141,44 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   target_tree_ = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
     target_, small_gicp::KdTreeBuilderOMP(num_threads_));
 
+  point_cloud_callback_group_ =
+    this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  initial_pose_callback_group_ =
+    this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  registration_callback_group_ =
+    this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  transform_callback_group_ =
+    this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  global_map_callback_group_ =
+    this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+  rclcpp::SubscriptionOptions pcd_sub_options;
+  pcd_sub_options.callback_group = point_cloud_callback_group_;
   pcd_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
     input_cloud_topic_, 10,
-    std::bind(&SmallGicpRelocalizationNode::registeredPcdCallback, this, std::placeholders::_1));
+    std::bind(&SmallGicpRelocalizationNode::registeredPcdCallback, this, std::placeholders::_1),
+    pcd_sub_options);
 
+  rclcpp::SubscriptionOptions initial_pose_sub_options;
+  initial_pose_sub_options.callback_group = initial_pose_callback_group_;
   initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
     "initialpose", 10,
-    std::bind(&SmallGicpRelocalizationNode::initialPoseCallback, this, std::placeholders::_1));
+    std::bind(&SmallGicpRelocalizationNode::initialPoseCallback, this, std::placeholders::_1),
+    initial_pose_sub_options);
 
   register_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(500),  // 2 Hz
-    std::bind(&SmallGicpRelocalizationNode::performRegistration, this));
+    std::bind(&SmallGicpRelocalizationNode::performRegistration, this),
+    registration_callback_group_);
 
   transform_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(50),  // 20 Hz
-    std::bind(&SmallGicpRelocalizationNode::publishTransform, this));
+    std::bind(&SmallGicpRelocalizationNode::publishTransform, this), transform_callback_group_);
 
   global_map_timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(1000), std::bind(&SmallGicpRelocalizationNode::publishGlobalMap, this));
+    std::chrono::milliseconds(1000),
+    std::bind(&SmallGicpRelocalizationNode::publishGlobalMap, this),
+    global_map_callback_group_);
 }
 
 void SmallGicpRelocalizationNode::loadGlobalMap(const std::string & file_name)
@@ -211,9 +232,6 @@ void SmallGicpRelocalizationNode::publishGlobalMap()
 void SmallGicpRelocalizationNode::registeredPcdCallback(
   const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
-  last_scan_time_ = msg->header.stamp;
-  current_scan_frame_id_ = msg->header.frame_id;
-
   pcl::PointCloud<pcl::PointXYZ>::Ptr scan(new pcl::PointCloud<pcl::PointXYZ>());
 
   pcl::fromROSMsg(*msg, *scan);
@@ -223,44 +241,64 @@ void SmallGicpRelocalizationNode::registeredPcdCallback(
   debug_msg.header = msg->header;
   current_scan_pub_->publish(debug_msg);
 
-  *accumulated_cloud_ += *scan;
+  {
+    std::lock_guard<std::mutex> lock(scan_mutex_);
+    last_scan_time_ = msg->header.stamp;
+    current_scan_frame_id_ = msg->header.frame_id;
+    *accumulated_cloud_ += *scan;
+  }
 }
 
 void SmallGicpRelocalizationNode::performRegistration()
 {
-  if (require_initial_pose_ && !initial_pose_received_) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 5000,
-      "Waiting for /initialpose before accepting GICP updates.");
+  {
+    std::lock_guard<std::mutex> pose_lock(pose_mutex_);
+    if (require_initial_pose_ && !initial_pose_received_) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "Waiting for /initialpose before accepting GICP updates.");
+      std::lock_guard<std::mutex> scan_lock(scan_mutex_);
+      accumulated_cloud_->clear();
+      return;
+    }
+  }
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr accumulated_snapshot(new pcl::PointCloud<pcl::PointXYZ>());
+  rclcpp::Time scan_stamp;
+  {
+    std::lock_guard<std::mutex> lock(scan_mutex_);
+    if (accumulated_cloud_->empty()) {
+      RCLCPP_WARN(this->get_logger(), "No accumulated points to process.");
+      return;
+    }
+
+    *accumulated_snapshot = *accumulated_cloud_;
     accumulated_cloud_->clear();
-    return;
+    scan_stamp = last_scan_time_;
   }
 
-  if (accumulated_cloud_->empty()) {
-    RCLCPP_WARN(this->get_logger(), "No accumulated points to process.");
-    return;
-  }
-
-  source_ = small_gicp::voxelgrid_sampling_omp<
+  auto source = small_gicp::voxelgrid_sampling_omp<
     pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointCovariance>>(
-    *accumulated_cloud_, registered_leaf_size_);
+    *accumulated_snapshot, registered_leaf_size_);
 
-  accumulated_cloud_->clear();
+  if (!source) {
+    return;
+  }
 
-  if (source_->size() < static_cast<size_t>(std::max(min_source_points_, 0))) {
+  if (source->size() < static_cast<size_t>(std::max(min_source_points_, 0))) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 2000,
       "Rejecting GICP input: too few source points after downsampling (%zu < %d).",
-      source_->size(), min_source_points_);
+      source->size(), min_source_points_);
     return;
   }
 
-  small_gicp::estimate_covariances_omp(*source_, num_neighbors_, num_threads_);
+  small_gicp::estimate_covariances_omp(*source, num_neighbors_, num_threads_);
 
-  source_tree_ = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
-    source_, small_gicp::KdTreeBuilderOMP(num_threads_));
+  auto source_tree = std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
+    source, small_gicp::KdTreeBuilderOMP(num_threads_));
 
-  if (!source_ || !source_tree_) {
+  if (!source_tree) {
     return;
   }
 
@@ -268,14 +306,22 @@ void SmallGicpRelocalizationNode::performRegistration()
   register_->rejector.max_dist_sq = max_dist_sq_;
   register_->optimizer.max_iterations = 10;
 
-  auto result = register_->align(*target_, *source_, *target_tree_, previous_result_t_);
+  Eigen::Isometry3d initial_guess;
+  std::uint64_t start_pose_version;
+  {
+    std::lock_guard<std::mutex> lock(pose_mutex_);
+    initial_guess = previous_result_t_;
+    start_pose_version = pose_version_;
+  }
+
+  auto result = register_->align(*target_, *source, *target_tree_, initial_guess);
 
   const double inlier_ratio =
-    source_->empty() ? 0.0 : static_cast<double>(result.num_inliers) / source_->size();
+    source->empty() ? 0.0 : static_cast<double>(result.num_inliers) / source->size();
   const double fitness_score = result.num_inliers == 0
                                 ? std::numeric_limits<double>::infinity()
                                 : result.error / static_cast<double>(result.num_inliers);
-  const Eigen::Isometry3d delta = previous_result_t_.inverse() * result.T_target_source;
+  const Eigen::Isometry3d delta = initial_guess.inverse() * result.T_target_source;
   const double translation_update = delta.translation().norm();
   const double rotation_update = Eigen::AngleAxisd(delta.rotation()).angle();
 
@@ -292,16 +338,27 @@ void SmallGicpRelocalizationNode::performRegistration()
       this->get_logger(),
       "Rejected GICP update: inliers=%zu/%zu ratio=%.3f fitness=%.3f d_trans=%.3f "
       "d_rot=%.1fdeg",
-      result.num_inliers, source_->size(), inlier_ratio, fitness_score, translation_update,
+      result.num_inliers, source->size(), inlier_ratio, fitness_score, translation_update,
       rotation_update * 180.0 / std::acos(-1.0));
     return;
   }
 
-  result_t_ = previous_result_t_ = result.T_target_source;
+  {
+    std::lock_guard<std::mutex> lock(pose_mutex_);
+    if (pose_version_ != start_pose_version) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Discarded GICP update because /initialpose changed while registration was running.");
+      return;
+    }
+
+    result_t_ = previous_result_t_ = result.T_target_source;
+    ++pose_version_;
+  }
 
   pcl::PointCloud<pcl::PointXYZ> source_xyz;
-  source_xyz.reserve(source_->size());
-  for (const auto & point : source_->points) {
+  source_xyz.reserve(source->size());
+  for (const auto & point : source->points) {
     source_xyz.emplace_back(point.x, point.y, point.z);
   }
 
@@ -310,7 +367,7 @@ void SmallGicpRelocalizationNode::performRegistration()
 
   sensor_msgs::msg::PointCloud2 aligned_msg;
   pcl::toROSMsg(aligned_scan, aligned_msg);
-  aligned_msg.header.stamp = last_scan_time_.nanoseconds() == 0 ? this->now() : last_scan_time_;
+  aligned_msg.header.stamp = scan_stamp.nanoseconds() == 0 ? this->now() : scan_stamp;
   aligned_msg.header.frame_id = map_frame_;
   aligned_scan_pub_->publish(aligned_msg);
 
@@ -318,25 +375,31 @@ void SmallGicpRelocalizationNode::performRegistration()
     this->get_logger(), *this->get_clock(), 2000,
     "Accepted GICP update: inliers=%zu/%zu ratio=%.3f fitness=%.3f d_trans=%.3f "
     "d_rot=%.1fdeg",
-    result.num_inliers, source_->size(), inlier_ratio, fitness_score, translation_update,
+    result.num_inliers, source->size(), inlier_ratio, fitness_score, translation_update,
     rotation_update * 180.0 / std::acos(-1.0));
 }
 
 void SmallGicpRelocalizationNode::publishTransform()
 {
-  if (result_t_.matrix().isZero()) {
-    return;
+  Eigen::Isometry3d result;
+  {
+    std::lock_guard<std::mutex> lock(pose_mutex_);
+    if (require_initial_pose_ && !initial_pose_received_) {
+      return;
+    }
+    if (result_t_.matrix().isZero()) {
+      return;
+    }
+    result = result_t_;
   }
 
   geometry_msgs::msg::TransformStamped transform_stamped;
-  // `+ 0.1` means transform into future. according to https://robotics.stackexchange.com/a/96615
-  const rclcpp::Time stamp = last_scan_time_.nanoseconds() == 0 ? this->now() : last_scan_time_;
-  transform_stamped.header.stamp = stamp + rclcpp::Duration::from_seconds(0.1);
+  transform_stamped.header.stamp = this->now() + rclcpp::Duration::from_seconds(0.1);
   transform_stamped.header.frame_id = map_frame_;
   transform_stamped.child_frame_id = odom_frame_;
 
-  const Eigen::Vector3d translation = result_t_.translation();
-  const Eigen::Quaterniond rotation(result_t_.rotation());
+  const Eigen::Vector3d translation = result.translation();
+  const Eigen::Quaterniond rotation(result.rotation());
 
   transform_stamped.transform.translation.x = translation.x();
   transform_stamped.transform.translation.y = translation.y();
@@ -370,8 +433,12 @@ void SmallGicpRelocalizationNode::initialPoseCallback(
       tf2::transformToEigen(transform.transform));
     Eigen::Isometry3d map_to_odom = map_to_robot_base * odom_to_robot_base.inverse();
 
-    initial_pose_received_ = true;
-    previous_result_t_ = result_t_ = map_to_odom;
+    {
+      std::lock_guard<std::mutex> lock(pose_mutex_);
+      initial_pose_received_ = true;
+      previous_result_t_ = result_t_ = map_to_odom;
+      ++pose_version_;
+    }
   } catch (tf2::TransformException & ex) {
     RCLCPP_WARN(
       this->get_logger(), "Could not transform initial pose from %s to %s: %s",

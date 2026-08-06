@@ -990,7 +990,7 @@ PidPathFollower::getObstaclePointsInRobotFrame(
     }
 
     has_cloud = static_cast<bool>(cloud);
-    stale_cloud = false;
+    stale_cloud = !cloud;
     std::vector<LocalPoint> points;
     if (!cloud) {
         return points;
@@ -1562,7 +1562,8 @@ PidPathFollower::LocalPathSelection PidPathFollower::planLocalCostmapPath(
         return selection;
     }
 
-    if (isCostmapCellBlocked(goal_mx, goal_my)) {
+    if (isCostmapCellBlocked(start_mx, start_my) ||
+        isCostmapCellBlocked(goal_mx, goal_my)) {
         return selection;
     }
 
@@ -1627,6 +1628,13 @@ PidPathFollower::LocalPathSelection PidPathFollower::planLocalCostmapPath(
             const auto nmx = static_cast<unsigned int>(nx);
             const auto nmy = static_cast<unsigned int>(ny);
             if (isCostmapCellBlocked(nmx, nmy)) {
+                continue;
+            }
+            if (dx[i] != 0 && dy[i] != 0 &&
+                (isCostmapCellBlocked(static_cast<unsigned int>(cx + dx[i]),
+                                      static_cast<unsigned int>(cy)) ||
+                 isCostmapCellBlocked(static_cast<unsigned int>(cx),
+                                      static_cast<unsigned int>(cy + dy[i])))) {
                 continue;
             }
 
