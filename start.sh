@@ -1,59 +1,167 @@
-#!/bin/bash
-SESSION="indoor_slam"
+#!/usr/bin/env bash
 
-# 1. 检查并安装 tmux
-if ! command -v tmux &> /dev/null; then
-    sudo apt update && sudo apt install tmux -y
+set -u
+
+SESSION="indoor_slam"
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NAV_MAP="$WORKSPACE_DIR/maps/maps.yaml"
+PCD_MAP="$WORKSPACE_DIR/maps/PCD/scans.pcd"
+
+export ROS_DOMAIN_ID=13
+
+ROS_SETUP="/opt/ros/humble/setup.bash"
+WORKSPACE_SETUP="$WORKSPACE_DIR/install/setup.bash"
+
+# ------------------------------------------------------------------
+# 基础文件检查
+# ------------------------------------------------------------------
+
+if [[ ! -f "$ROS_SETUP" ]]; then
+    echo "ROS 2 setup file not found: $ROS_SETUP" >&2
+    exit 1
 fi
 
-# 2. 清理旧会话并创建新会话（这步绝对不能省！）
-tmux kill-session -t $SESSION 2>/dev/null
-tmux new-session -d -s $SESSION
+if [[ ! -f "$WORKSPACE_SETUP" ]]; then
+    echo "Workspace setup file not found: $WORKSPACE_SETUP" >&2
+    echo "Please build the workspace first:" >&2
+    echo "  cd \"$WORKSPACE_DIR\" && colcon build" >&2
+    exit 1
+fi
 
-# 3. 基础配置
-tmux set-option -g mouse on
-tmux set-option -g pane-border-status top
-tmux set-option -g pane-border-format " #[fg=black,bg=green] #T #[default] "
+if [[ ! -f "$NAV_MAP" ]]; then
+    echo "Navigation map not found: $NAV_MAP" >&2
+    exit 1
+fi
 
-# ---------------------------------------------------------------
-# 核心布局划分（标准 4 宫格田字格）
-# ---------------------------------------------------------------
-# 先左右对半切 (生成 0 和 1)
-tmux split-window -h -p 50 -t $SESSION
+if [[ ! -f "$PCD_MAP" ]]; then
+    echo "PCD map not found: $PCD_MAP" >&2
+    exit 1
+fi
 
-# 把左半边上下对半切 (生成 2，位于左下)
-tmux select-pane -t 0
-tmux split-window -v -p 50 -t $SESSION
+# ------------------------------------------------------------------
+# 检查 tmux
+# ------------------------------------------------------------------
 
-# 把右半边上下对半切 (生成 3，位于右下)
-tmux select-pane -t 2
-tmux split-window -v -p 50 -t $SESSION
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "tmux is not installed."
 
-# ---------------------------------------------------------------
-# 命名窗格标题 (根据切分逻辑：0=左上, 2=左下, 1=右上, 3=右下)
-# ---------------------------------------------------------------
-tmux select-pane -t 0 -T "雷达驱动"
-tmux select-pane -t 2 -T "里程计"
-tmux select-pane -t 1 -T "重定位"
-tmux select-pane -t 3 -T "导航"
+    sudo apt update || exit 1
+    sudo apt install -y tmux || exit 1
+fi
 
-# ---------------------------------------------------------------
-# 发送 ROS2 指令
-# ---------------------------------------------------------------
-# 0号窗格 (左上): 雷达
-tmux send-keys -t $SESSION:0.0 "export ROS_DOMAIN_ID=13 && source install/setup.bash && ros2 launch livox_ros_driver2 msg_MID360s_launch.py" C-m
+# 对路径进行 shell 转义，避免路径中存在空格
+printf -v WORKSPACE_SETUP_Q '%q' "$WORKSPACE_SETUP"
+printf -v NAV_MAP_Q '%q' "$NAV_MAP"
+printf -v PCD_MAP_Q '%q' "$PCD_MAP"
+
+COMMON_ENV="export ROS_DOMAIN_ID=13; source /opt/ros/humble/setup.bash; source $WORKSPACE_SETUP_Q"
+
+# ------------------------------------------------------------------
+# 清理旧会话
+# ------------------------------------------------------------------
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux kill-session -t "$SESSION"
+fi
+
+# 指定新会话的默认工作目录
+tmux new-session \
+    -d \
+    -s "$SESSION" \
+    -c "$WORKSPACE_DIR" \
+    -n "indoor_slam"
+
+# ------------------------------------------------------------------
+# 当前会话配置
+# 使用 -t 指定会话，避免无意影响其他 tmux 会话
+# ------------------------------------------------------------------
+
+tmux set-option -t "$SESSION" mouse on
+tmux set-option -t "$SESSION" pane-border-status top
+tmux set-option -t "$SESSION" \
+    pane-border-format \
+    " #[fg=black,bg=green] #T #[default] "
+
+# ------------------------------------------------------------------
+# 创建标准四宫格
+#
+# 0：左上
+# 1：右上
+# 2：左下
+# 3：右下
+# ------------------------------------------------------------------
+
+# 将初始窗格左右切分
+tmux split-window \
+    -h \
+    -p 50 \
+    -t "$SESSION:0.0" \
+    -c "$WORKSPACE_DIR"
+
+# 切分左侧窗格，创建左下
+tmux split-window \
+    -v \
+    -p 50 \
+    -t "$SESSION:0.0" \
+    -c "$WORKSPACE_DIR"
+
+# 切分右侧窗格，创建右下
+tmux split-window \
+    -v \
+    -p 50 \
+    -t "$SESSION:0.1" \
+    -c "$WORKSPACE_DIR"
+
+# 重新均匀排列，确保四个窗格尺寸一致
+tmux select-layout -t "$SESSION:0" tiled
+
+# ------------------------------------------------------------------
+# 设置窗格标题
+# ------------------------------------------------------------------
+
+tmux select-pane -t "$SESSION:0.0" -T "雷达驱动"
+tmux select-pane -t "$SESSION:0.1" -T "重定位"
+tmux select-pane -t "$SESSION:0.2" -T "里程计"
+tmux select-pane -t "$SESSION:0.3" -T "导航"
+
+# ------------------------------------------------------------------
+# 启动 ROS 2 节点
+# ------------------------------------------------------------------
+
+tmux send-keys \
+    -t "$SESSION:0.0" \
+    "$COMMON_ENV; ros2 launch livox_ros_driver2 msg_MID360s_launch.py" \
+    C-m
+
+sleep 3
+
+tmux send-keys \
+    -t "$SESSION:0.2" \
+    "$COMMON_ENV; ros2 launch point_lio point_lio_with_mapping_control.launch.py" \
+    C-m
+
+sleep 3
+
+tmux send-keys \
+    -t "$SESSION:0.1" \
+    "$COMMON_ENV; ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py prior_pcd_file:=$PCD_MAP_Q" \
+    C-m
+
 sleep 2
 
-# 2号窗格 (左下): 里程计 (Point-LIO)
-tmux send-keys -t $SESSION:0.2 "export ROS_DOMAIN_ID=13 && source install/setup.bash && ros2 launch point_lio point_lio.launch.py" C-m
-sleep 2
+tmux send-keys \
+    -t "$SESSION:0.3" \
+    "$COMMON_ENV; ros2 launch nav indoor_navigation_launch.py map:=$NAV_MAP_Q autostart:=true" \
+    C-m
 
-# 1号窗格 (右上): 重定位 (small_gicp)
-tmux send-keys -t $SESSION:0.1 "export ROS_DOMAIN_ID=13 && source install/setup.bash && ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py" C-m
+# ------------------------------------------------------------------
+# 进入会话
+# ------------------------------------------------------------------
 
-# 3号窗格 (右下): 导航 (nav)
-tmux send-keys -t $SESSION:0.3 "export ROS_DOMAIN_ID=13 && source install/setup.bash && ros2 launch nav indoor_navigation_launch.py" C-m
+tmux select-pane -t "$SESSION:0.0"
 
-# 打开会话并聚焦在左上角
-tmux select-pane -t 0
-tmux attach-session -t $SESSION
+if [[ -n "${TMUX:-}" ]]; then
+    tmux switch-client -t "$SESSION"
+else
+    tmux attach-session -t "$SESSION"
+fi

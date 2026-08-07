@@ -312,6 +312,12 @@ else(ROS_EDITION STREQUAL "ROS2")
     ${APR_LIBRARIES}
   )
 
+  # OTA release 将 Livox SDK2 的运行库放在 merge-install 的 install/lib。
+  # 使用相对 RPATH，避免目标机器人必须预装 /usr/local/lib 下的 SDK。
+  set_target_properties(${PROJECT_NAME} PROPERTIES
+    INSTALL_RPATH "\$ORIGIN"
+  )
+
   rclcpp_components_register_node(${PROJECT_NAME}
     PLUGIN "livox_ros::DriverNode"
     EXECUTABLE ${PROJECT_NAME}_node

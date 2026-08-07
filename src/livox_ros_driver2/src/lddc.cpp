@@ -115,6 +115,14 @@ int Lddc::RegisterLds(Lds *lds) {
   }
 }
 
+void Lddc::SetRosNode(livox_ros::DriverNode *node) {
+  cur_node_ = node;
+#ifdef BUILDING_ROS2
+  health_pub_ = cur_node_->create_publisher<std_msgs::msg::Empty>(
+      "/livox/health", rclcpp::QoS(rclcpp::KeepLast(1)).best_effort());
+#endif
+}
+
 void Lddc::DistributePointCloudData(void) {
   if (!lds_) {
     std::cout << "lds is not registered" << std::endl;
@@ -342,6 +350,9 @@ void Lddc::PublishPointcloud2Data(const uint8_t index, const uint64_t timestamp,
 
   if (kOutputToRos == output_type_) {
     publisher_ptr->publish(cloud);
+#ifdef BUILDING_ROS2
+    PublishHealth();
+#endif
   } else {
 #ifdef BUILDING_ROS1
     if (bag_ && enable_lidar_bag_) {
@@ -407,6 +418,9 @@ void Lddc::PublishCustomPointData(const CustomMsg& livox_msg, const uint8_t inde
 
   if (kOutputToRos == output_type_) {
     publisher_ptr->publish(livox_msg);
+#ifdef BUILDING_ROS2
+    PublishHealth();
+#endif
   } else {
 #ifdef BUILDING_ROS1
     if (bag_ && enable_lidar_bag_) {
@@ -415,6 +429,14 @@ void Lddc::PublishCustomPointData(const CustomMsg& livox_msg, const uint8_t inde
 #endif
   }
 }
+
+#ifdef BUILDING_ROS2
+void Lddc::PublishHealth() {
+  if (health_pub_) {
+    health_pub_->publish(std_msgs::msg::Empty());
+  }
+}
+#endif
 
 void Lddc::InitPclMsg(const StoragePacket& pkg, PointCloud& cloud, uint64_t& timestamp) {
 #ifdef BUILDING_ROS1

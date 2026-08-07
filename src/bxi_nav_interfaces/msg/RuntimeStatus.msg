@@ -1,0 +1,10 @@
+std_msgs/Header header
+string current_mode
+string desired_mode
+string transition_id
+string active_map_id
+bool localized
+float32 fitness_score
+float32 inlier_ratio
+bool driver_healthy
+string last_error

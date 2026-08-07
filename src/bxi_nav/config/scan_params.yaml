@@ -1,0 +1,26 @@
+# pointcloud_to_laserscan 参数（导航模式 /scan）。
+# 由 indoor_navigation_launch.py 与 bxi_slam_manager 的独立 scan 节点组共享；
+# 通配符头允许任意节点名加载。
+/**:
+  ros__parameters:
+    target_frame: base_link
+
+    # 只取一定高度范围内的点，模拟2D雷达
+    min_height: -1.0
+    max_height: 0.40
+
+    # 360度扫描
+    angle_min: -3.14159
+    angle_max: 3.14159
+    angle_increment: 0.0087
+
+    scan_time: 0.1
+    # 与建图模式一致: 1.0 会造成 1 米近身盲区, local_costmap
+    # 看不到贴近的行人/障碍 (A* fallback 会径直从其身上规划)。
+    range_min: 0.2
+    # App 雷达显示保留远场数据；costmap 各自按 obstacle_max_range
+    # 裁剪，远处行人不会让机器人提前大幅改道。
+    range_max: 12.0
+
+    use_inf: true
+    inf_epsilon: 1.0

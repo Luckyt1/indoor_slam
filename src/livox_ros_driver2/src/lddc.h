@@ -88,7 +88,7 @@ class Lddc final {
 
   uint8_t GetTransferFormat(void) { return transfer_format_; }
   uint8_t IsMultiTopic(void) { return use_multi_topic_; }
-  void SetRosNode(livox_ros::DriverNode *node) { cur_node_ = node; }
+  void SetRosNode(livox_ros::DriverNode *node);
 
   // void SetRosPub(ros::Publisher *pub) { global_pub_ = pub; };  // NOT USED
   void SetPublishFrq(uint32_t frq) { publish_frq_ = frq; }
@@ -113,6 +113,9 @@ class Lddc final {
   void InitCustomMsg(CustomMsg& livox_msg, const StoragePacket& pkg, uint8_t index);
   void FillPointsToCustomMsg(CustomMsg& livox_msg, const StoragePacket& pkg);
   void PublishCustomPointData(const CustomMsg& livox_msg, const uint8_t index);
+#ifdef BUILDING_ROS2
+  void PublishHealth();
+#endif
 
   void InitPclMsg(const StoragePacket& pkg, PointCloud& cloud, uint64_t& timestamp);
   void FillPointsToPclMsg(const StoragePacket& pkg, PointCloud& pcl_msg);
@@ -153,6 +156,7 @@ class Lddc final {
   PublisherPtr global_pub_;
   PublisherPtr private_imu_pub_[kMaxSourceLidar];
   PublisherPtr global_imu_pub_;
+  Publisher<std_msgs::msg::Empty>::SharedPtr health_pub_;
 #endif
 
   livox_ros::DriverNode *cur_node_;

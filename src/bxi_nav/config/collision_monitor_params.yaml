@@ -1,0 +1,50 @@
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: base_link
+    odom_frame_id: odom
+    cmd_vel_in_topic: /cmd_vel
+    cmd_vel_out_topic: /cmd_vel_safe
+    transform_tolerance: 0.50
+    # Point-LIO/scan timestamps were observed 0.37..0.47 s behind the monitor
+    # clock on ELF3. Keep failing closed, but tolerate that measured pipeline
+    # latency so valid people/obstacle scans are not discarded every cycle.
+    source_timeout: 0.80
+    # Transforming the delayed scan at its own timestamp is more reliable here;
+    # base-shift extrapolation repeatedly requested transforms in the future.
+    base_shift_correction: false
+    stop_pub_timeout: 1.0
+
+    # A front-only hard guard protects people from noisy approach/normal
+    # transitions. The footprint approach remains direction-aware, so a rear-
+    # clear recovery can still back away from obstacles outside the hard guard.
+    polygons: [FrontStop, NearStop]
+    FrontStop:
+      type: polygon
+      points: [0.20, -0.30, 0.35, -0.38, 0.65, -0.30, 0.75, 0.00,
+               0.65, 0.30, 0.35, 0.38, 0.20, 0.30]
+      action_type: stop
+      # Humble stops when the count is greater than max_points: 1 therefore
+      # rejects a lone dust return but stops on two adjacent human returns.
+      max_points: 1
+      visualize: true
+      polygon_pub_topic: /collision_monitor/front_stop
+      enabled: true
+    NearStop:
+      type: polygon
+      action_type: approach
+      footprint_topic: local_costmap/published_footprint
+      time_before_collision: 2.0
+      simulation_time_step: 0.05
+      # A human produces many adjacent scan bins; requiring several points
+      # rejects isolated dust / multipath returns without delaying a real stop.
+      max_points: 2
+      visualize: true
+      polygon_pub_topic: /collision_monitor/near_stop
+      enabled: true
+
+    observation_sources: [scan]
+    scan:
+      type: scan
+      topic: /scan
+      enabled: true

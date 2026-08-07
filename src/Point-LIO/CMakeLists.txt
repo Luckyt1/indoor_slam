@@ -37,6 +37,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
@@ -45,18 +46,15 @@ find_package(livox_ros_driver2 REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 # PCL
-find_package(PCL REQUIRED COMPONENTS common io filters)
-
-# 查找 Python 3 - 需要 Python.h
-find_package(Python3 COMPONENTS Development REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common io filters registration)
 
 # 包含目录
 include_directories(
   include
   ${EIGEN3_INCLUDE_DIR}
   ${PCL_INCLUDE_DIRS}
-  ${Python3_INCLUDE_DIRS}
 )
+include_directories(SYSTEM third_party/manif/include)
 
 # 可执行文件
 add_executable(pointlio_mapping
@@ -68,12 +66,16 @@ add_executable(pointlio_mapping
   src/IMU_Processing.cpp
 )
 
+add_executable(merge_pcd_maps src/merge_pcd_maps.cpp)
+target_link_libraries(merge_pcd_maps ${PCL_LIBRARIES})
+
 # ROS2 依赖
 ament_target_dependencies(pointlio_mapping
   rclcpp
   geometry_msgs
   nav_msgs
   sensor_msgs
+  std_srvs
   visualization_msgs
   pcl_ros
   pcl_conversions
@@ -84,7 +86,6 @@ ament_target_dependencies(pointlio_mapping
 # 准备链接库列表
 set(ALL_LIBS
   ${PCL_LIBRARIES}
-  Python3::Python
 )
 
 # 一次性链接所有库（使用普通签名）
@@ -93,6 +94,12 @@ target_link_libraries(pointlio_mapping ${ALL_LIBS})
 # 安装
 install(TARGETS
   pointlio_mapping
+  merge_pcd_maps
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/mapping_control_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -106,6 +113,7 @@ ament_export_dependencies(
   geometry_msgs
   nav_msgs
   sensor_msgs
+  std_srvs
   pcl_ros
   pcl_conversions
   tf2_ros

@@ -285,10 +285,14 @@ int main(int argc, char **argv) {
 
   downSizeFilter.setLeafSize(scanVoxelSize, scanVoxelSize, scanVoxelSize);
 
+  // Keep one executor for the node lifetime. The rclcpp::spin_some(node)
+  // convenience overload creates a new executor (and guard condition) on
+  // every iteration, which can race with SIGINT after rclcpp has shut down.
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(nh);
   rclcpp::Rate rate(100);
-  bool status = rclcpp::ok();
-  while (status) {
-    rclcpp::spin_some(nh);
+  while (rclcpp::ok()) {
+    executor.spin_some();
     if (newlaserCloud) {
       newlaserCloud = false;
 
@@ -693,8 +697,6 @@ int main(int argc, char **argv) {
       pubLaserCloud->publish(terrainCloud2);
     }
 
-    // status = ros::ok();
-    status = rclcpp::ok();
     rate.sleep();
   }
 

@@ -1,6 +1,7 @@
 #ifndef PID_PATH_FOLLOWER__PID_PATH_FOLLOWER_HPP_
 #define PID_PATH_FOLLOWER__PID_PATH_FOLLOWER_HPP_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -88,6 +89,7 @@ private:
     double path_scale{1.0};
     int rotation_index{-1};
     int group_index{-1};
+    geometry_msgs::msg::PoseStamped anchor_pose{};
     std::vector<std::pair<double, double>> local_path;
   };
 
@@ -110,6 +112,10 @@ private:
   geometry_msgs::msg::PoseStamped transformPose(
     const geometry_msgs::msg::PoseStamped & pose,
     const std::string & target_frame) const;
+  bool findClosestPlanIndex(
+    const geometry_msgs::msg::PoseStamped & robot_pose,
+    const std::string & target_frame,
+    std::size_t & closest_index) const;
   geometry_msgs::msg::PoseStamped getLookaheadPose(
     const geometry_msgs::msg::PoseStamped & robot_pose,
     geometry_msgs::msg::PoseStamped & final_pose) const;
@@ -160,7 +166,6 @@ private:
   bool shouldPublishFreePaths();
   bool shouldUpdateLocalPath(const rclcpp::Time & now) const;
   geometry_msgs::msg::PoseStamped targetPoseFromLocalPath(
-    const geometry_msgs::msg::PoseStamped & robot_pose,
     const LocalPathSelection & selection) const;
   double distanceToSegment(
     double px,
@@ -181,6 +186,7 @@ private:
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
   std::string plugin_name_;
   nav_msgs::msg::Path global_plan_;
+  mutable std::size_t closest_plan_index_{0};
 
   double lookahead_distance_{0.6};
   double prune_distance_{0.35};

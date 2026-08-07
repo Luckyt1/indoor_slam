@@ -1,7 +1,6 @@
 // #ifndef PARAM_H
 // #define PARAM_H
 #pragma once
-#include <Python.h>
 #include <ivox/ivox3d.h>
 #include <math.h>
 #include <pcl/common/transforms.h>
@@ -19,7 +18,6 @@
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <thread>
 
@@ -66,6 +64,30 @@ extern bool scan_pub_en, scan_body_pub_en, tf_send_en;
 extern bool pcd_save_filter_en;
 extern bool filter_rear_points;
 extern double rear_filter_angle_deg;
+extern bool occlusion_filter_en;
+extern double occlusion_azimuth_resolution_deg;
+extern double occlusion_elevation_resolution_deg;
+extern double occlusion_depth_margin_m;
+extern double occlusion_surface_tolerance_m;
+extern bool loop_closure_en;
+extern double loop_keyframe_distance_m;
+extern double loop_keyframe_angle_deg;
+extern int loop_min_keyframe_separation;
+extern double loop_search_radius_m;
+extern double loop_fitness_threshold;
+extern double static_voxel_size_m;
+extern int static_min_observations;
+extern int static_min_keyframe_span;
+extern int static_min_visibility_checks;
+extern double static_min_visibility_confidence;
+extern double static_visibility_azimuth_deg;
+extern double static_visibility_elevation_deg;
+extern int static_visibility_neighbor_bins;
+extern int static_max_visibility_frames;
+extern double static_free_space_margin_m;
+extern double static_max_stddev_m;
+extern double static_trim_ratio;
+extern int pcd_save_minimum_output_points;
 extern shared_ptr<Preprocess> p_pre;
 extern shared_ptr<ImuProcess> p_imu;
 extern bool is_first_frame;
@@ -83,7 +105,7 @@ extern MeasureGroup Measures;
 
 extern ofstream fout_out, fout_imu_pbp;
 void readParameters(std::shared_ptr<rclcpp::Node> & n);
-void open_file();
+bool open_file();
 Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3 & orient);
 void reset_cov(Eigen::Matrix<double, 24, 24> & P_init);
 void reset_cov_output(Eigen::Matrix<double, 30, 30> & P_init_output);

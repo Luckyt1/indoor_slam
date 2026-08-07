@@ -1,0 +1,7 @@
+float64   x
+float64   y
+float64   yaw
+float64[] covariance     # 可空，默认 0.25 / 0.0685
+---
+bool      success
+string    message

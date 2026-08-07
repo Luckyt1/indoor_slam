@@ -11,7 +11,9 @@
 
   <maintainer email="dev@livoxtech.com">claydergc</maintainer>
 
-  <license>BSD</license>
+  <license>BSD-3-Clause</license>
+  <license>MIT</license>
+  <license>CC0-1.0</license>
 
   <author email="hdj65822@connect.hku.hk">Dongjiao He</author>
 
@@ -19,6 +21,9 @@
 
   <depend>rclcpp</depend>
   <depend>rclpy</depend>
+  <depend>bxi_nav_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>sensor_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>visualization_msgs</depend>
@@ -27,9 +32,11 @@
   <depend>pcl_ros</depend>
   <depend>pcl_conversions</depend>
   <depend>livox_ros_driver2</depend>
+  <exec_depend>pointcloud_to_laserscan</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

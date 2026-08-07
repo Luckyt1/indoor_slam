@@ -108,6 +108,7 @@ void PidPathFollower::configure(
 void PidPathFollower::cleanup()
 {
     global_plan_.poses.clear();
+    closest_plan_index_ = 0;
     obstacle_cloud_sub_.reset();
     free_paths_pub_.reset();
     local_path_pub_.reset();
@@ -150,6 +151,7 @@ void PidPathFollower::deactivate()
 void PidPathFollower::setPlan(const nav_msgs::msg::Path &path)
 {
     global_plan_ = path;
+    closest_plan_index_ = 0;
     linear_pid_ = PidState{};
     angular_pid_ = PidState{};
     previous_linear_cmd_ = 0.0;
@@ -198,7 +200,7 @@ geometry_msgs::msg::TwistStamped PidPathFollower::computeVelocityCommands(
 
         collision = cached_collision_;
         if (cached_selection_.found) {
-            target_pose = targetPoseFromLocalPath(pose, cached_selection_);
+            target_pose = targetPoseFromLocalPath(cached_selection_);
         } else {
             collision.blocked = true;
             collision.footprint_blocked = true;
@@ -354,7 +356,7 @@ geometry_msgs::msg::TwistStamped PidPathFollower::computeVelocityCommands(
 
         collision = cached_collision_;
         if (cached_selection_.found) {
-            target_pose = targetPoseFromLocalPath(pose, cached_selection_);
+            target_pose = targetPoseFromLocalPath(cached_selection_);
         } else {
             collision.blocked = true;
             collision.footprint_blocked = true;
@@ -915,6 +917,60 @@ PidPathFollower::transformPose(const geometry_msgs::msg::PoseStamped &pose,
     return transformed_pose;
 }
 
+bool PidPathFollower::findClosestPlanIndex(
+    const geometry_msgs::msg::PoseStamped &robot_pose,
+    const std::string &target_frame,
+    std::size_t &closest_index) const
+{
+    if (global_plan_.poses.empty()) {
+        return false;
+    }
+
+    double best_distance = std::numeric_limits<double>::max();
+    bool found_pose = false;
+    const auto scan_range = [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            try {
+                const auto candidate = transformPose(global_plan_.poses[i], target_frame);
+                const double distance = distance2D(robot_pose, candidate);
+                if (distance < best_distance) {
+                    best_distance = distance;
+                    closest_index = i;
+                    found_pose = true;
+                }
+            } catch (const tf2::TransformException &) {
+                continue;
+            }
+        }
+    };
+
+    // 正常跟踪只在上次最近点附近搜索，避免每个 20Hz 控制周期多次遍历并 TF
+    // 整条长路径。保留少量后退窗口；重定位/路径跳变导致候选距离过大时再退化
+    // 为全量扫描，保证正确性。
+    constexpr std::size_t kBackwardWindow = 32;
+    constexpr std::size_t kForwardWindow = 256;
+    const std::size_t anchor =
+        std::min(closest_plan_index_, global_plan_.poses.size() - 1);
+    const std::size_t begin = anchor > kBackwardWindow
+                                  ? anchor - kBackwardWindow
+                                  : 0;
+    const std::size_t end = std::min(
+        global_plan_.poses.size(), anchor + kForwardWindow + 1);
+    scan_range(begin, end);
+
+    if ((!found_pose || best_distance > 2.0) &&
+        (begin != 0 || end != global_plan_.poses.size())) {
+        best_distance = std::numeric_limits<double>::max();
+        found_pose = false;
+        scan_range(0, global_plan_.poses.size());
+    }
+
+    if (found_pose) {
+        closest_plan_index_ = closest_index;
+    }
+    return found_pose;
+}
+
 geometry_msgs::msg::PoseStamped PidPathFollower::getLookaheadPose(
     const geometry_msgs::msg::PoseStamped &robot_pose,
     geometry_msgs::msg::PoseStamped &final_pose) const
@@ -922,26 +978,8 @@ geometry_msgs::msg::PoseStamped PidPathFollower::getLookaheadPose(
     const std::string &target_frame = robot_pose.header.frame_id;
     final_pose = transformPose(global_plan_.poses.back(), target_frame);
 
-    double best_distance = std::numeric_limits<double>::max();
     std::size_t closest_index = 0;
-    bool found_pose = false;
-
-    for (std::size_t i = 0; i < global_plan_.poses.size(); ++i) {
-        try {
-            const auto candidate =
-                transformPose(global_plan_.poses[i], target_frame);
-            const double distance = distance2D(robot_pose, candidate);
-            if (distance < best_distance) {
-                best_distance = distance;
-                closest_index = i;
-                found_pose = true;
-            }
-        } catch (const tf2::TransformException &) {
-            continue;
-        }
-    }
-
-    if (!found_pose) {
+    if (!findClosestPlanIndex(robot_pose, target_frame, closest_index)) {
         throw std::runtime_error(
             "Failed to transform any path pose into controller frame");
     }
@@ -990,7 +1028,7 @@ PidPathFollower::getObstaclePointsInRobotFrame(
     }
 
     has_cloud = static_cast<bool>(cloud);
-    stale_cloud = !cloud;
+    stale_cloud = false;
     std::vector<LocalPoint> points;
     if (!cloud) {
         return points;
@@ -1146,23 +1184,9 @@ std::vector<std::pair<double, double>> PidPathFollower::buildLocalPath(
                                           -sin_yaw * dx + cos_yaw * dy };
     };
 
-    double best_distance = std::numeric_limits<double>::max();
     std::size_t closest_index = 0;
-    bool found_pose = false;
-    for (std::size_t i = 0; i < global_plan_.poses.size(); ++i) {
-        try {
-            const auto candidate = transformPose(global_plan_.poses[i],
-                                                 robot_pose.header.frame_id);
-            const double distance = distance2D(robot_pose, candidate);
-            if (distance < best_distance) {
-                best_distance = distance;
-                closest_index = i;
-                found_pose = true;
-            }
-        } catch (const tf2::TransformException &) {
-            continue;
-        }
-    }
+    const bool found_pose = findClosestPlanIndex(
+        robot_pose, robot_pose.header.frame_id, closest_index);
 
     double accumulated = 0.0;
     if (found_pose) {
@@ -1501,6 +1525,7 @@ PidPathFollower::LocalPathSelection PidPathFollower::selectLibraryPath(
                                  relative_goal_dis, clear_path_list,
                                  min_obs_ang_cw, min_obs_ang_ccw);
                 selection.found = true;
+                selection.anchor_pose = robot_pose;
                 selection.path_scale = current_path_scale;
                 selection.rotation_index = rot_dir;
                 selection.group_index = group_id;
@@ -1562,8 +1587,7 @@ PidPathFollower::LocalPathSelection PidPathFollower::planLocalCostmapPath(
         return selection;
     }
 
-    if (isCostmapCellBlocked(start_mx, start_my) ||
-        isCostmapCellBlocked(goal_mx, goal_my)) {
+    if (isCostmapCellBlocked(goal_mx, goal_my)) {
         return selection;
     }
 
@@ -1630,13 +1654,6 @@ PidPathFollower::LocalPathSelection PidPathFollower::planLocalCostmapPath(
             if (isCostmapCellBlocked(nmx, nmy)) {
                 continue;
             }
-            if (dx[i] != 0 && dy[i] != 0 &&
-                (isCostmapCellBlocked(static_cast<unsigned int>(cx + dx[i]),
-                                      static_cast<unsigned int>(cy)) ||
-                 isCostmapCellBlocked(static_cast<unsigned int>(cx),
-                                      static_cast<unsigned int>(cy + dy[i])))) {
-                continue;
-            }
 
             const int neighbor_index = to_index(nmx, nmy);
             const unsigned char cost = costmap->getCost(nmx, nmy);
@@ -1692,11 +1709,12 @@ PidPathFollower::LocalPathSelection PidPathFollower::planLocalCostmapPath(
             -sin_yaw * rel_x + cos_yaw * rel_y);
     }
 
-    if (selection.local_path.size() < 2) {
+    if (selection.local_path.empty()) {
         return selection;
     }
 
     selection.found = true;
+    selection.anchor_pose = start_pose;
     publishLocalCostmapPath(start_pose, selection);
     return selection;
 }
@@ -1713,25 +1731,8 @@ geometry_msgs::msg::PoseStamped PidPathFollower::getLocalCostmapGoal(
     const std::string target_frame = costmap_ros_->getGlobalFrameID();
     geometry_msgs::msg::PoseStamped best_goal = transformPose(fallback_goal, target_frame);
     double best_distance = 0.0;
-    double closest_distance = std::numeric_limits<double>::max();
     std::size_t closest_index = 0;
-    bool found_closest = false;
-
-    for (std::size_t i = 0; i < global_plan_.poses.size(); ++i) {
-        try {
-            const auto candidate = transformPose(global_plan_.poses[i], target_frame);
-            const double distance = distance2D(robot_pose, candidate);
-            if (distance < closest_distance) {
-                closest_distance = distance;
-                closest_index = i;
-                found_closest = true;
-            }
-        } catch (const tf2::TransformException &) {
-            continue;
-        }
-    }
-
-    if (!found_closest) {
+    if (!findClosestPlanIndex(robot_pose, target_frame, closest_index)) {
         return best_goal;
     }
 
@@ -2019,10 +2020,9 @@ void PidPathFollower::publishLocalCostmapPath(
 }
 
 geometry_msgs::msg::PoseStamped PidPathFollower::targetPoseFromLocalPath(
-    const geometry_msgs::msg::PoseStamped &robot_pose,
     const LocalPathSelection &selection) const
 {
-    geometry_msgs::msg::PoseStamped target = robot_pose;
+    geometry_msgs::msg::PoseStamped target = selection.anchor_pose;
     if (selection.local_path.empty()) {
         return target;
     }
@@ -2040,16 +2040,21 @@ geometry_msgs::msg::PoseStamped PidPathFollower::targetPoseFromLocalPath(
     }
 
     const auto &local_target = selection.local_path[target_index];
-    const double robot_yaw = yawFromQuaternion(robot_pose.pose.orientation);
-    const double cos_yaw = std::cos(robot_yaw);
-    const double sin_yaw = std::sin(robot_yaw);
-    target.pose.position.x = robot_pose.pose.position.x +
+    const double anchor_yaw =
+        yawFromQuaternion(selection.anchor_pose.pose.orientation);
+    const double cos_yaw = std::cos(anchor_yaw);
+    const double sin_yaw = std::sin(anchor_yaw);
+    target.pose.position.x = selection.anchor_pose.pose.position.x +
                              cos_yaw * local_target.first -
                              sin_yaw * local_target.second;
-    target.pose.position.y = robot_pose.pose.position.y +
+    target.pose.position.y = selection.anchor_pose.pose.position.y +
                              sin_yaw * local_target.first +
                              cos_yaw * local_target.second;
-    target.pose.position.z = robot_pose.pose.position.z;
+    target.pose.position.z = selection.anchor_pose.pose.position.z;
+
+    if (selection.local_path.size() == 1) {
+        return target;
+    }
 
     const std::size_t heading_from_index = target_index > 0 ? target_index - 1 : 0;
     const std::size_t heading_to_index =
@@ -2060,7 +2065,7 @@ geometry_msgs::msg::PoseStamped PidPathFollower::targetPoseFromLocalPath(
         std::atan2(heading_point.second - heading_from.second,
                    heading_point.first - heading_from.first);
     tf2::Quaternion orientation;
-    orientation.setRPY(0.0, 0.0, normalizeAngle(robot_yaw + local_heading));
+    orientation.setRPY(0.0, 0.0, normalizeAngle(anchor_yaw + local_heading));
     target.pose.orientation = tf2::toMsg(orientation);
     return target;
 }

@@ -1,0 +1,6 @@
+std_msgs/Header header
+string  state
+float64 distance_remaining
+float64 estimated_time_remaining
+float64 navigation_time
+uint16  number_of_recoveries

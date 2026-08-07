@@ -1,0 +1,10 @@
+geometry_msgs/Pose2D[] waypoints
+---
+bool success
+string message
+uint32 completed_count
+uint32 failed_index
+---
+uint32 current_index
+float64 distance_remaining
+float64 estimated_time_remaining

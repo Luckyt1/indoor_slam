@@ -1,0 +1,13 @@
+uint8 MODE_IDLE=0
+uint8 MODE_NEW_MAPPING=1
+uint8 MODE_NAVIGATION=2
+uint8 MODE_EXTEND_MAPPING=3
+string request_id
+uint8 mode
+string map_id
+string pcd_path
+string yaml_path
+---
+bool accepted
+string transition_id
+string message

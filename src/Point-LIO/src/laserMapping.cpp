@@ -10,10 +10,15 @@
 
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <std_srvs/srv/set_bool.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <timing_utils.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
+#include <limits>
+#include <mutex>
 #include <unordered_map>
 
 #include "li_initialization.h"
@@ -117,7 +122,7 @@ void pointBodyLidarToIMU(PointType const * const pi, PointType * const po)
   po->intensity = pi->intensity;
 }
 
-bool keepPointForMapping(const PointType & point_body)
+bool keepPointForRearSector(const PointType & point_body)
 {
   if (!filter_rear_points) {
     return true;
@@ -132,18 +137,121 @@ bool keepPointForMapping(const PointType & point_body)
   return angle_from_rear > 0.5 * rear_sector_rad;
 }
 
+static std::vector<std::uint8_t> mapping_keep_mask;
+static std::vector<double> mapping_nearest_ranges;
+static std::vector<int> mapping_point_bins;
+static std::vector<double> mapping_point_ranges;
+static PointCloudXYZI::Ptr mapping_filtered_world(new PointCloudXYZI());
+
+void updateMappingKeepMask()
+{
+  const std::size_t count = feats_down_body->size();
+  mapping_keep_mask.assign(count, 1U);
+  if (count == 0) {
+    return;
+  }
+
+  for (std::size_t index = 0; index < count; ++index) {
+    if (!keepPointForRearSector(feats_down_body->points[index])) {
+      mapping_keep_mask[index] = 0U;
+    }
+  }
+  if (!occlusion_filter_en) {
+    return;
+  }
+
+  const double azimuth_resolution =
+    std::clamp(occlusion_azimuth_resolution_deg, 0.25, 10.0);
+  const double elevation_resolution =
+    std::clamp(occlusion_elevation_resolution_deg, 0.5, 10.0);
+  const int azimuth_bins = static_cast<int>(std::ceil(360.0 / azimuth_resolution));
+  const int elevation_bins = static_cast<int>(std::ceil(180.0 / elevation_resolution));
+  const double infinity = std::numeric_limits<double>::infinity();
+  const std::size_t bin_count = static_cast<std::size_t>(azimuth_bins * elevation_bins);
+  mapping_nearest_ranges.assign(bin_count, infinity);
+  mapping_point_bins.assign(count, -1);
+  mapping_point_ranges.assign(count, infinity);
+
+  for (std::size_t index = 0; index < count; ++index) {
+    if (mapping_keep_mask[index] == 0U) {
+      continue;
+    }
+    const auto & point = feats_down_body->points[index];
+    const double horizontal = std::hypot(point.x, point.y);
+    const double range = std::hypot(horizontal, static_cast<double>(point.z));
+    if (!std::isfinite(range) || range <= 0.05) {
+      mapping_keep_mask[index] = 0U;
+      continue;
+    }
+    double azimuth = std::atan2(point.y, point.x) * 180.0 / PI_M;
+    if (azimuth < 0.0) {
+      azimuth += 360.0;
+    }
+    const double elevation =
+      std::atan2(point.z, horizontal) * 180.0 / PI_M + 90.0;
+    const int azimuth_bin = std::clamp(
+      static_cast<int>(azimuth / azimuth_resolution), 0, azimuth_bins - 1);
+    const int elevation_bin = std::clamp(
+      static_cast<int>(elevation / elevation_resolution), 0, elevation_bins - 1);
+    const int bin = elevation_bin * azimuth_bins + azimuth_bin;
+    mapping_point_bins[index] = bin;
+    mapping_point_ranges[index] = range;
+    mapping_nearest_ranges[static_cast<std::size_t>(bin)] =
+      std::min(mapping_nearest_ranges[static_cast<std::size_t>(bin)], range);
+  }
+
+  const double depth_margin = std::max(0.2, occlusion_depth_margin_m);
+  const double surface_tolerance = std::max(0.1, occlusion_surface_tolerance_m);
+  for (std::size_t index = 0; index < count; ++index) {
+    const int bin = mapping_point_bins[index];
+    if (bin < 0 || mapping_keep_mask[index] == 0U) {
+      continue;
+    }
+    const int elevation_bin = bin / azimuth_bins;
+    const int azimuth_bin = bin % azimuth_bins;
+    const double own_nearest = mapping_nearest_ranges[static_cast<std::size_t>(bin)];
+    if (mapping_point_ranges[index] > own_nearest + depth_margin) {
+      mapping_keep_mask[index] = 0U;
+      continue;
+    }
+    const int left_azimuth = (azimuth_bin + azimuth_bins - 1) % azimuth_bins;
+    const int right_azimuth = (azimuth_bin + 1) % azimuth_bins;
+    const double left = mapping_nearest_ranges[static_cast<std::size_t>(
+      elevation_bin * azimuth_bins + left_azimuth)];
+    const double right = mapping_nearest_ranges[static_cast<std::size_t>(
+      elevation_bin * azimuth_bins + right_azimuth)];
+    if (
+      std::isfinite(left) && std::isfinite(right) &&
+      std::abs(left - right) <= surface_tolerance &&
+      mapping_point_ranges[index] > std::max(left, right) + depth_margin)
+    {
+      mapping_keep_mask[index] = 0U;
+    }
+  }
+}
+
+bool keepPointForMapping(std::size_t index)
+{
+  if (index < mapping_keep_mask.size()) {
+    return mapping_keep_mask[index] != 0U;
+  }
+  return index < feats_down_body->size() &&
+         keepPointForRearSector(feats_down_body->points[index]);
+}
+
 PointCloudXYZI::Ptr buildWorldCloudForMapping()
 {
-  if (!filter_rear_points) {
+  if (!filter_rear_points && !occlusion_filter_en) {
     return feats_down_world;
   }
 
-  PointCloudXYZI::Ptr filtered(new PointCloudXYZI());
+  PointCloudXYZI::Ptr filtered = mapping_filtered_world;
+  filtered->clear();
   const size_t point_count = std::min(feats_down_world->size(), feats_down_body->size());
   filtered->points.reserve(point_count);
 
   for (size_t i = 0; i < point_count; ++i) {
-    if (keepPointForMapping(feats_down_body->points[i])) {
+    if (keepPointForMapping(i)) {
       filtered->points.push_back(feats_down_world->points[i]);
     }
   }
@@ -161,7 +269,7 @@ void MapIncremental()
   points_to_add.reserve(cur_pts);
 
   for (size_t i = 0; i < cur_pts; ++i) {
-    if (i < feats_down_body->size() && !keepPointForMapping(feats_down_body->points[i])) {
+    if (i < feats_down_body->size() && !keepPointForMapping(i)) {
       continue;
     }
 
@@ -210,116 +318,44 @@ void publish_init_map(
 
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
-struct StaticVoxelKey {
-  int64_t x;
-  int64_t y;
-  int64_t z;
-  bool operator==(const StaticVoxelKey & other) const
-  {
-    return x == other.x && y == other.y && z == other.z;
-  }
-};
-struct StaticVoxelKeyHash {
-  std::size_t operator()(const StaticVoxelKey & key) const
-  {
-    std::size_t h = std::hash<int64_t>{}(key.x);
-    h ^= std::hash<int64_t>{}(key.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
-    h ^= std::hash<int64_t>{}(key.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
-    return h;
-  }
-};
-struct StaticVoxelCell {
-  PointType point;
-  int observations = 0;
-  int first_frame = 0;
-  int last_frame = 0;
-};
-static constexpr double kStaticMapVoxelSize = 0.15;
-static constexpr int kMinStaticObservations = 8;
-static constexpr int kMinStaticObservationSpanFrames = 30;
-static std::unordered_map<StaticVoxelKey, StaticVoxelCell, StaticVoxelKeyHash> static_map_voxels;
-static int static_map_frame_index = 0;
+static std::mutex pcd_save_mutex;
+static bool app_mapping_active = false;
+static bool app_mapping_paused = false;
 
-StaticVoxelKey makeStaticVoxelKey(const PointType & point)
+void resetPcdSaveCloud()
 {
-  return {
-    static_cast<int64_t>(std::floor(point.x / kStaticMapVoxelSize)),
-    static_cast<int64_t>(std::floor(point.y / kStaticMapVoxelSize)),
-    static_cast<int64_t>(std::floor(point.z / kStaticMapVoxelSize))};
+  pcl_wait_save->clear();
 }
-void accumulateStaticMapFrame(const PointCloudXYZI & cloud)
+
+bool removePreviousScansPcd(std::string * message)
 {
-  static_map_frame_index++;
-
-  std::unordered_map<StaticVoxelKey, PointType, StaticVoxelKeyHash> frame_voxels;
-  frame_voxels.reserve(cloud.size());
-
-  for (const auto & point : cloud.points) {
-    if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
-      continue;
-    }
-
-    StaticVoxelKey key = makeStaticVoxelKey(point);
-    if (frame_voxels.find(key) == frame_voxels.end()) {
-      frame_voxels.emplace(key, point);
-    }
+  const std::filesystem::path pcd_path =
+    std::filesystem::path(ROOT_DIR) / "PCD" / "scans.pcd";
+  std::error_code error;
+  std::filesystem::remove(pcd_path, error);
+  if (!error) {
+    return true;
   }
-
-  for (const auto & item : frame_voxels) {
-    StaticVoxelCell & cell = static_map_voxels[item.first];
-    const PointType & point = item.second;
-
-    if (cell.observations == 0) {
-      cell.point = point;
-      cell.first_frame = static_map_frame_index;
-    } else {
-      const double ratio = 1.0 / static_cast<double>(cell.observations + 1);
-      cell.point.x += (point.x - cell.point.x) * ratio;
-      cell.point.y += (point.y - cell.point.y) * ratio;
-      cell.point.z += (point.z - cell.point.z) * ratio;
-      cell.point.intensity += (point.intensity - cell.point.intensity) * ratio;
-    }
-
-    cell.observations++;
-    cell.last_frame = static_map_frame_index;
+  if (message) {
+    *message = "failed to remove previous scans.pcd: " + error.message();
   }
-}
-PointCloudXYZI::Ptr buildStaticMapCloud()
-{
-  PointCloudXYZI::Ptr cloud(new PointCloudXYZI());
-  cloud->points.reserve(static_map_voxels.size());
-
-  for (const auto & item : static_map_voxels) {
-    const StaticVoxelCell & cell = item.second;
-    const int observed_span = cell.last_frame - cell.first_frame + 1;
-    if (
-      cell.observations >= kMinStaticObservations &&
-      observed_span >= kMinStaticObservationSpanFrames) {
-      cloud->points.push_back(item.second.point);
-    }
-  }
-
-  cloud->width = cloud->points.size();
-  cloud->height = 1;
-  cloud->is_dense = false;
-  return cloud;
+  RCLCPP_ERROR(
+    LOGGER, "Failed to remove previous PCD map %s: %s",
+    pcd_path.c_str(), error.message().c_str());
+  return false;
 }
 
 void accumulatePcdSaveCloud(const PointCloudXYZI & cloud)
 {
-  if (pcd_save_filter_en) {
-    accumulateStaticMapFrame(cloud);
-  } else {
-    *pcl_wait_save += cloud;
-  }
+  // Persist the same filtered world-frame cloud that is published to the live
+  // mapping UI. Save-time loop closure or visibility filtering changes point
+  // coordinates/removes points and makes the final PCD/PGM disagree with what
+  // the operator approved while mapping.
+  *pcl_wait_save += cloud;
 }
 
 PointCloudXYZI::Ptr buildPcdSaveCloud()
 {
-  if (pcd_save_filter_en) {
-    return buildStaticMapCloud();
-  }
-
   return pcl_wait_save;
 }
 
@@ -338,14 +374,42 @@ bool saveScansPcd(const PointCloudXYZI & cloud)
   }
 }
 
+bool saveCurrentPcdMap(std::string * message)
+{
+  PointCloudXYZI::Ptr pcd_cloud = buildPcdSaveCloud();
+  if (pcd_cloud->empty()) {
+    if (message) {
+      *message = "no points to save";
+    }
+    return false;
+  }
+  if (!saveScansPcd(*pcd_cloud)) {
+    if (message) {
+      *message = "failed to write src/Point-LIO/PCD/scans.pcd";
+    }
+    return false;
+  }
+  if (message) {
+    *message = "saved src/Point-LIO/PCD/scans.pcd";
+  }
+  return true;
+}
+
 void publish_frame_world(
   const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & pubLaserCloudFullRes)
 {
-  PointCloudXYZI::Ptr map_cloud = buildWorldCloudForMapping();
-
+  PointCloudXYZI::Ptr live_cloud = feats_down_world;
+  {
+    std::lock_guard<std::mutex> lock(pcd_save_mutex);
+    if (app_mapping_active) {
+      live_cloud = buildWorldCloudForMapping();
+    }
+  }
   if (scan_pub_en) {
     sensor_msgs::msg::PointCloud2 laserCloudmsg;
-    pcl::toROSMsg(*map_cloud, laserCloudmsg);
+    // Mapping preview matches the filtered saved map. Outside an App mapping
+    // session, navigation keeps the complete 360-degree safety scan.
+    pcl::toROSMsg(*live_cloud, laserCloudmsg);
 
     laserCloudmsg.header.stamp = get_ros_time(lidar_end_time);
     laserCloudmsg.header.frame_id = world_frame;
@@ -356,11 +420,9 @@ void publish_frame_world(
   // 1. make sure you have enough memories
   // 2. noted that pcd save will influence the real-time performances
   if (pcd_save_en) {
-    accumulatePcdSaveCloud(*map_cloud);
-    PointCloudXYZI::Ptr pcd_cloud = buildPcdSaveCloud();
-
-    if (pcd_save_filter_en && !pcd_cloud->empty()) {
-      saveScansPcd(*pcd_cloud);
+    std::lock_guard<std::mutex> lock(pcd_save_mutex);
+    if (app_mapping_active && !app_mapping_paused) {
+      accumulatePcdSaveCloud(*live_cloud);
     }
   }
 }
@@ -389,7 +451,7 @@ void set_posestamp(T & out)
     out.position.x = kf_output.x_.pos(0);
     out.position.y = kf_output.x_.pos(1);
     out.position.z = kf_output.x_.pos(2);
-    Eigen::Quaterniond q(kf_output.x_.rot);
+    Eigen::Quaterniond q = kf_output.x_.rot.quaternion();
     out.orientation.x = q.coeffs()[0];
     out.orientation.y = q.coeffs()[1];
     out.orientation.z = q.coeffs()[2];
@@ -398,7 +460,7 @@ void set_posestamp(T & out)
     out.position.x = kf_input.x_.pos(0);
     out.position.y = kf_input.x_.pos(1);
     out.position.z = kf_input.x_.pos(2);
-    Eigen::Quaterniond q(kf_input.x_.rot);
+    Eigen::Quaterniond q = kf_input.x_.rot.quaternion();
     out.orientation.x = q.coeffs()[0];
     out.orientation.y = q.coeffs()[1];
     out.orientation.z = q.coeffs()[2];
@@ -418,6 +480,25 @@ void publish_odometry(
     odomAftMapped.header.stamp = get_ros_time(lidar_end_time);
   }
   set_posestamp(odomAftMapped.pose.pose);
+
+  // nav_msgs/Odometry twist is expressed in child_frame_id. Point-LIO already
+  // estimates velocity in its filter state, so publish that estimate instead
+  // of forcing downstream consumers to differentiate and low-pass the pose.
+  V3D body_velocity;
+  V3D body_angular_velocity;
+  if (!use_imu_as_input) {
+    body_velocity = kf_output.x_.rot.matrix().transpose() * kf_output.x_.vel;
+    body_angular_velocity = kf_output.x_.omg;
+  } else {
+    body_velocity = kf_input.x_.rot.matrix().transpose() * kf_input.x_.vel;
+    body_angular_velocity = input_in.gyro - kf_input.x_.bg;
+  }
+  odomAftMapped.twist.twist.linear.x = body_velocity.x();
+  odomAftMapped.twist.twist.linear.y = body_velocity.y();
+  odomAftMapped.twist.twist.linear.z = body_velocity.z();
+  odomAftMapped.twist.twist.angular.x = body_angular_velocity.x();
+  odomAftMapped.twist.twist.angular.y = body_angular_velocity.y();
+  odomAftMapped.twist.twist.angular.z = body_angular_velocity.z();
 
   pubOdomAftMapped->publish(odomAftMapped);
 
@@ -505,10 +586,31 @@ int main(int argc, char ** argv)
   Eigen::Matrix<double, 24, 24> Q_input = process_noise_cov_input();
   Eigen::Matrix<double, 30, 30> Q_output = process_noise_cov_output();
   /*** debug record ***/
-  FILE * fp;
-  string pos_log_dir = root_dir + "/Log/pos_log.txt";
-  fp = fopen(pos_log_dir.c_str(), "w");
-  open_file();
+  FILE * fp = nullptr;
+  if (runtime_pos_log) {
+    std::error_code log_dir_error;
+    const std::filesystem::path log_dir = std::filesystem::path(root_dir) / "Log";
+    std::filesystem::create_directories(log_dir, log_dir_error);
+    if (log_dir_error) {
+      RCLCPP_WARN(
+        LOGGER, "Disabling Point-LIO runtime logs: cannot create %s: %s",
+        log_dir.c_str(), log_dir_error.message().c_str());
+      runtime_pos_log = false;
+    } else {
+      const std::filesystem::path pos_log_path = log_dir / "pos_log.txt";
+      fp = fopen(pos_log_path.string().c_str(), "w");
+      if (fp == nullptr || !open_file()) {
+        RCLCPP_WARN(
+          LOGGER, "Disabling Point-LIO runtime logs: cannot open files under %s",
+          log_dir.c_str());
+        if (fp != nullptr) {
+          fclose(fp);
+          fp = nullptr;
+        }
+        runtime_pos_log = false;
+      }
+    }
+  }
 
   /*** ROS subscribe initialization ***/
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc;
@@ -525,15 +627,80 @@ int main(int argc, char ** argv)
   auto sub_imu =
     nh->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS(), imu_cbk);
   auto pub_laser_cloud_full_res =
-    nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_registered", 1000);
+    nh->create_publisher<sensor_msgs::msg::PointCloud2>(
+      "cloud_registered", rclcpp::SensorDataQoS().keep_last(2));
   auto pub_laser_cloud_full_res_body =
-    nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_registered_body", 1000);
+    nh->create_publisher<sensor_msgs::msg::PointCloud2>(
+      "cloud_registered_body", rclcpp::SensorDataQoS().keep_last(2));
   auto pub_laser_cloud_effect =
     nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_effected", 1000);
   auto pub_laser_cloud_map = nh->create_publisher<sensor_msgs::msg::PointCloud2>("Laser_map", 1000);
   auto pub_odom_aft_mapped =
     nh->create_publisher<nav_msgs::msg::Odometry>("aft_mapped_to_init", 1000);
   auto pub_path = nh->create_publisher<nav_msgs::msg::Path>("path", 1000);
+  auto mapping_start_srv = nh->create_service<std_srvs::srv::Trigger>("/point_lio/mapping/start",
+    [](
+      const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      std::lock_guard<std::mutex> lock(pcd_save_mutex);
+      if (!pcd_save_en) {
+        response->success = false;
+        response->message = "pcd_save.pcd_save_en is false";
+        return;
+      }
+      resetPcdSaveCloud();
+      app_mapping_active = false;
+      app_mapping_paused = false;
+      std::string cleanup_message;
+      if (!removePreviousScansPcd(&cleanup_message)) {
+        response->success = false;
+        response->message = cleanup_message;
+        return;
+      }
+      app_mapping_active = true;
+      app_mapping_paused = false;
+      response->success = true;
+      response->message = "Point-LIO mapping accumulation started";
+    });
+  auto mapping_pause_srv = nh->create_service<std_srvs::srv::SetBool>("/point_lio/mapping/pause",
+    [](
+      const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+      std::shared_ptr<std_srvs::srv::SetBool::Response> response) {
+      std::lock_guard<std::mutex> lock(pcd_save_mutex);
+      if (!app_mapping_active) {
+        response->success = false;
+        response->message = "no active Point-LIO mapping accumulation";
+        return;
+      }
+      app_mapping_paused = request->data;
+      response->success = true;
+      response->message = app_mapping_paused ? "Point-LIO mapping paused" :
+        "Point-LIO mapping resumed";
+    });
+  auto mapping_save_srv = nh->create_service<std_srvs::srv::Trigger>("/point_lio/mapping/save",
+    [](
+      const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      std::lock_guard<std::mutex> lock(pcd_save_mutex);
+      std::string message;
+      response->success = saveCurrentPcdMap(&message);
+      response->message = message;
+      if (response->success) {
+        app_mapping_active = false;
+        app_mapping_paused = false;
+      }
+    });
+  auto mapping_cancel_srv = nh->create_service<std_srvs::srv::Trigger>("/point_lio/mapping/cancel",
+    [](
+      const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      std::lock_guard<std::mutex> lock(pcd_save_mutex);
+      resetPcdSaveCloud();
+      app_mapping_active = false;
+      app_mapping_paused = false;
+      response->success = true;
+      response->message = "Point-LIO mapping accumulation cancelled";
+    });
   auto tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(nh);
 
   //------------------------------------------------------------------------------------------------------
@@ -661,7 +828,10 @@ int main(int argc, char ** argv)
           }
         }
         for (size_t i = 0; i < feats_down_world->size(); i++) {
-          if (i < feats_undistort->size() && !keepPointForMapping(feats_undistort->points[i])) {
+          if (
+            i < feats_undistort->size() &&
+            !keepPointForRearSector(feats_undistort->points[i]))
+          {
             continue;
           }
           init_feats_world->points.emplace_back(feats_down_world->points[i]);
@@ -1114,7 +1284,10 @@ int main(int argc, char ** argv)
       t3 = point_lio::wall_time();
 
       if (feats_down_size > 4) {
+        updateMappingKeepMask();
         MapIncremental();
+      } else {
+        mapping_keep_mask.clear();
       }
 
       t5 = point_lio::wall_time();
@@ -1170,14 +1343,16 @@ int main(int argc, char ** argv)
   /* 1. make sure you have enough memories
     /* 2. noted that pcd save will influence the real-time performences **/
   if (pcd_save_en) {
-    PointCloudXYZI::Ptr pcd_cloud = buildPcdSaveCloud();
-    if (!pcd_cloud->empty()) {
-      saveScansPcd(*pcd_cloud);
-    } else {
-      RCLCPP_WARN(LOGGER, "No points to save.");
+    std::lock_guard<std::mutex> lock(pcd_save_mutex);
+    if (app_mapping_active) {
+      std::string message;
+      if (!saveCurrentPcdMap(&message)) {
+        RCLCPP_WARN(LOGGER, "%s", message.c_str());
+      }
     }
   }
-  fout_out.close();
-  fout_imu_pbp.close();
+  if (fp != nullptr) fclose(fp);
+  if (fout_out.is_open()) fout_out.close();
+  if (fout_imu_pbp.is_open()) fout_imu_pbp.close();
   return 0;
 }

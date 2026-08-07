@@ -1,0 +1,19 @@
+# goal
+string map_name
+string session_id
+string base_map_id
+---
+# result
+bool    success
+string  message
+string  map_pgm_path
+string  map_yaml_path
+string  map_pcd_path
+---
+# feedback
+string  state
+uint32  cells_known
+float32 elapsed_sec
+float32 resolution
+uint32  width
+uint32  height

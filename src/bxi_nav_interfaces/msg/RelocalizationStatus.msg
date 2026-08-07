@@ -1,0 +1,6 @@
+std_msgs/Header header
+bool localized
+float32 fitness_score
+float32 inlier_ratio
+float32 translation_update
+float32 rotation_update_deg

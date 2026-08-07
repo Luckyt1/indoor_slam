@@ -50,11 +50,11 @@ Eigen::Matrix<double, 30, 30> df_dx_output(state_output &s, const input_ikfom &i
 
 // Eigen::Matrix<double, 30, 15> df_dw_output(state_output &s);
 
-void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R, esekfom::dyn_share_modified<double> &ekfom_data);
+void h_model_input(state_input &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R, point_lio::esikf::MeasurementData<double> &ekfom_data);
 
-void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R, esekfom::dyn_share_modified<double> &ekfom_data);
+void h_model_output(state_output &s, Eigen::Matrix3d cov_p, Eigen::Matrix3d cov_R, point_lio::esikf::MeasurementData<double> &ekfom_data);
 
-void h_model_IMU_output(state_output &s, esekfom::dyn_share_modified<double> &ekfom_data);
+void h_model_IMU_output(state_output &s, point_lio::esikf::MeasurementData<double> &ekfom_data);
 
 void pointBodyToWorld(PointType const * const pi, PointType * const po);
 

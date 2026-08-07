@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.11)
 project(small_gicp_relocalization)
 
-## Use C++14
-set(CMAKE_CXX_STANDARD 14)
+## Use C++17 for strongly typed runtime/status integration.
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 ## By adding -Wall and -Werror, the compiler does not ignore warnings anymore,
@@ -31,7 +31,8 @@ if(NOT small_gicp_FOUND)
   fetchcontent_declare(
     small_gicp
     GIT_REPOSITORY https://github.com/koide3/small_gicp.git
-    GIT_TAG "master"
+    GIT_TAG "v1.0.1"
+    GIT_SHALLOW TRUE
   )
 
   fetchcontent_makeavailable(small_gicp)
@@ -56,7 +57,6 @@ target_link_libraries(${PROJECT_NAME}
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN small_gicp_relocalization::SmallGicpRelocalizationNode
   EXECUTABLE ${PROJECT_NAME}_node
-  EXECUTOR MultiThreadedExecutor
 )
 
 #############

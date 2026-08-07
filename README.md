@@ -10,8 +10,9 @@ Indoor SLAM 是一套基于 ROS 2 Humble 的室内定位与导航工作区，当
 | Point-LIO | `src/Point-LIO` | 激光惯性里程计，输出机器人位姿和注册点云 |
 | small_gicp_relocalization | `src/small_gicp_relocalization` | 基于点云地图的重定位 |
 | Nav2 导航 | `src/bxi_nav` | 启动地图服务器、Nav2、点云转激光和 RViz |
-| 自定义控制器 | `src/pid_path_follower` | Nav2 控制器插件 |
-| 地图工具 | `tools` | PCD 到 Nav2 栅格地图转换、地图清理脚本 |
+| 运行时主管 | `src/bxi_slam_manager` | 静默启动，并按 App 请求切换建图、3D 重定位、导航和续建模式 |
+| 导航规划/控制 | NavFn A* + PID Path Follower | 移植自 `indoor_slam`，保留路径库局部避障、地形点云碰撞检测和速度平滑 |
+| 地图转换器 | `pcd2pgm_headless` + `scans_nav2_map.cfg` | 保存地图时把 PCD 转成 Nav2 栅格地图 |
 
 ## 环境要求
 
@@ -44,34 +45,70 @@ rosdep install --from-paths src --ignore-src -r -y
 
 ## 编译
 
-在仓库根目录执行：
+机器人上的部署入口是仓库根目录的 `install.sh`（需要 root），它会编译整个
+工作区并安装到 `/opt/bxi/bxi_rc_slam/install`：
+
+```bash
+sudo ./install.sh
+```
+
+开发环境可直接在仓库根目录执行：
 
 ```bash
 source /opt/ros/humble/setup.bash
-cd src/livox_ros_driver2/
-bash build.sh humble
+colcon build --symlink-install
+source install/setup.bash
 ```
+
+只编译导航相关包：
+
+```bash
+colcon build --packages-up-to nav
+source install/setup.bash
+```
+
 ## 一键启动
 
-`start.sh` 会创建一个 `tmux` 会话，并按 4 个窗格启动完整系统：
+`start.sh` 默认只启动轻量的 `bxi_slam_manager`。系统开机后处于
+`idle` 静默模式，不加载历史地图，也不启动 Point-LIO、GICP、Nav2 或 RViz。
+Livox 驱动同样按需启动，避免无人使用时持续接收和复制高带宽点云。App 发出
+运行模式请求后，主管才启动雷达与对应算法栈：
 
-| 窗格 | 模块 | 命令 |
-| --- | --- | --- |
-| 左上 | 雷达驱动 | `ros2 launch livox_ros_driver2 msg_MID360s_launch.py` |
-| 左下 | Point-LIO | `ros2 launch point_lio point_lio.launch.py` |
-| 右上 | 重定位 | `ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py` |
-| 右下 | 导航 | `ros2 launch nav indoor_navigation_launch.py` |
+| 模式 | 行为 |
+| --- | --- |
+| `new_mapping` | 启动 Point-LIO 和实时 2D 栅格，边扫描边建图 |
+| `navigation` | 加载地图 bundle，启动 Point-LIO、3D GICP 和 Nav2；定位成功前禁止运动目标 |
+| `extend_mapping` | 在父地图 3D 重定位成功后续建，保存为不可变子版本 |
+| `idle` | 停止 Livox 与所有按需算法进程，仅主管保持在线 |
 
-启动：
+主管每秒检查算法子进程与 3D 定位状态。GICP 状态超过 3 秒未更新或任一算法
+子进程异常退出时，系统会立即重新锁住导航并进入 `error`。按需进程组记录在
+`BXI_SLAM_PROCESS_REGISTRY` 指定的位置（root 默认
+`/run/bxi/slam-processes.json`），主管异常重启时会先清理旧进程组。
+
+正式部署由 `bxi_rc_ros2.service` 启动 SLAM Manager，再由 App 的运行模式接口
+让 Manager 拉起导航。所有子进程继承 RC 的 Domain 与 CycloneDDS 配置，不要并行
+执行另一套 `ros2 launch`。
+
+仅在离线排障、且正式服务未运行时，可以使用备用 tmux 启动器：
 
 ```bash
 ./start.sh
 ```
 
-`start.sh` 默认使用：
+`start.sh` 优先读取 RC 的正式环境文件：
 
 ```bash
-ROS_DOMAIN_ID=37
+/opt/bxi/bxi_rc_ros2/env.conf
+```
+
+它不会硬编码或创建独立 `ROS_DOMAIN_ID`；环境文件不存在时继承当前 shell 的
+ROS/DDS 环境。
+
+如需覆盖雷达配置：
+
+```bash
+LIVOX_CONFIG_PATH=/absolute/path/MID360.json ./start.sh
 ```
 
 停止：
@@ -80,7 +117,7 @@ ROS_DOMAIN_ID=37
 ./stop.sh
 ```
 
-注意：当前 `stop.sh` 使用 `tmux kill-server`，会关闭当前用户下所有 tmux 会话。
+`stop.sh` 只关闭 `indoor_slam` 会话，不影响当前用户的其它 tmux 任务。
 
 ## 手动启动
 
@@ -89,23 +126,23 @@ ROS_DOMAIN_ID=37
 终端 1，雷达驱动：
 
 ```bash
-export ROS_DOMAIN_ID=37
+set -a; source /opt/bxi/bxi_rc_ros2/env.conf; set +a
 source install/setup.bash
 ros2 launch livox_ros_driver2 msg_MID360s_launch.py
 ```
 
-终端 2，Point-LIO：
+终端 2，Point-LIO（含 App 建图控制接口）：
 
 ```bash
-export ROS_DOMAIN_ID=37
+set -a; source /opt/bxi/bxi_rc_ros2/env.conf; set +a
 source install/setup.bash
-ros2 launch point_lio point_lio.launch.py
+ros2 launch point_lio point_lio_with_mapping_control.launch.py
 ```
 
 终端 3，重定位：
 
 ```bash
-export ROS_DOMAIN_ID=37
+set -a; source /opt/bxi/bxi_rc_ros2/env.conf; set +a
 source install/setup.bash
 ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py
 ```
@@ -113,7 +150,7 @@ ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py
 终端 4，导航：
 
 ```bash
-export ROS_DOMAIN_ID=37
+set -a; source /opt/bxi/bxi_rc_ros2/env.conf; set +a
 source install/setup.bash
 ros2 launch nav indoor_navigation_launch.py
 ```
@@ -136,21 +173,23 @@ ros2 launch nav indoor_navigation_launch.py
 
 | 节点 | 作用 |
 | --- | --- |
-| `static_transform_publisher` | 发布 `body_raw -> base_link` 静态变换 |
 | `nav2_map_server` | 加载 2D 栅格地图 |
 | `nav2_lifecycle_manager` | 自动激活地图服务器 |
-| `nav2_bringup/navigation_launch.py` | 启动 Nav2 导航核心节点 |
+| `nav2_bringup/navigation_launch.py` | 启动 NavFn A*、PID Path Follower、路径/速度平滑和行为树 |
+| `nav_odom` | 把 Point-LIO 里程计转换到规范的 `base_link` 轴并发布 `/nav/odom` |
+| `terrain_analysis` | 从注册点云生成 `/terrain_map`，供 PID 局部规划器避障 |
+| `collision_monitor` | 对平滑后的 `/cmd_vel` 做最后安全检查并输出 `/cmd_vel_safe` |
 | `pointcloud_to_laserscan_node` | 将 `/cloud_registered` 转为 `/scan` |
+| `app_nav_gateway` | 保留 `/nav/*` App action/service/topic 接口并转发到 Nav2 |
 | `rviz2` | 打开 Nav2 默认 RViz 配置 |
 
 常用 launch 参数：
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `map` | `share/nav/maps/maps.yaml` | Nav2 栅格地图 |
-| `params_file` | `share/nav/config/nav2_params.yaml` | Nav2 参数文件 |
+| `map` | 空（必须显式传入） | Nav2 栅格地图 yaml 的完整路径 |
 | `use_sim_time` | `false` | 是否使用仿真时间 |
-| `autostart` | `true` | 是否自动激活生命周期节点 |
+| `autostart` | `false` | 是否自动激活生命周期节点 |
 | `rviz` | `true` | 是否启动 RViz |
 
 ## 地图文件
@@ -167,7 +206,7 @@ src/bxi_nav/maps/maps.pgm
 ```yaml
 image: maps.pgm
 mode: trinary
-resolution: 0.100000
+resolution: 0.050000
 origin: [-21.000000, -15.000000, 0.000000]
 negate: 0
 occupied_thresh: 0.65
@@ -182,38 +221,18 @@ ros2 launch nav indoor_navigation_launch.py map:=$(pwd)/src/bxi_nav/maps/maps.ya
 
 ## 从 PCD 生成 Nav2 地图
 
-工具脚本：
+PCD 到 Nav2 栅格地图的转换由仓库根目录的 `pcd2pgm_headless` 可执行文件完成，
+转换流水线定义在 `scans_nav2_map.cfg`。建图结束保存地图时，
+`mapping_control_node`（`src/Point-LIO/scripts`）会自动调用它，把保存的
+PCD 转成配套的 `.pgm`/`.yaml` 栅格地图，一般无需手动执行。
+
+手动转换示例（在期望的输出目录下执行）：
 
 ```bash
-tools/pcd_to_occupancy_grid.py
+/path/to/pcd2pgm_headless --headless <input.pcd> \
+  --config /path/to/scans_nav2_map.cfg \
+  --save-point-cloud map.pcd
 ```
-
-示例：
-
-```bash
-python3 tools/pcd_to_occupancy_grid.py \
-  --pcd maps/PCD/scans.pcd \
-  --output-dir src/bxi_nav/maps \
-  --name maps \
-  --resolution 0.10 \
-  --unknown-as-free
-```
-
-输出：
-
-```bash
-src/bxi_nav/maps/maps.pgm
-src/bxi_nav/maps/maps.yaml
-```
-
-可根据点云高度调整：
-
-| 参数 | 说明 |
-| --- | --- |
-| `--occupied-z-min` / `--occupied-z-max` | 障碍物高度范围 |
-| `--free-z-min` / `--free-z-max` | 地面/可通行区域高度范围 |
-| `--occupied-dilation` | 障碍物膨胀格数 |
-| `--resolution` | 地图分辨率，单位 m/cell |
 
 ## 常用检查命令
 
@@ -300,7 +319,8 @@ source install/setup.bash
 echo $ROS_DOMAIN_ID
 ```
 
-本项目启动脚本默认使用 `37`。
+正式环境当前使用 `22`，但本项目不再硬编码该值；以
+`/opt/bxi/bxi_rc_ros2/env.conf` 为唯一配置源。
 
 ## 开发备注
 
@@ -308,6 +328,7 @@ echo $ROS_DOMAIN_ID
 
 ```bash
 src/bxi_nav/config/nav2_params.yaml
+src/bxi_nav/config/collision_monitor_params.yaml
 ```
 
 修改导航 launch：
@@ -326,6 +347,6 @@ src/bxi_nav/maps/maps.pgm
 每次修改 C++ 代码后重新编译：
 
 ```bash
-colcon build --packages-select nav
+colcon build --packages-up-to nav
 source install/setup.bash
 ```

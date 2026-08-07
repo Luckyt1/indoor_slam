@@ -1,0 +1,7 @@
+string map_name          # 可空，默认用 build 的 map_name
+---
+bool   success
+string message
+string map_pgm_path
+string map_yaml_path
+string map_pcd_path

@@ -35,6 +35,30 @@ bool scan_pub_en, scan_body_pub_en, tf_send_en;
 bool pcd_save_filter_en = true;
 bool filter_rear_points = false;
 double rear_filter_angle_deg = 145.0;
+bool occlusion_filter_en = true;
+double occlusion_azimuth_resolution_deg = 1.0;
+double occlusion_elevation_resolution_deg = 2.0;
+double occlusion_depth_margin_m = 0.9;
+double occlusion_surface_tolerance_m = 0.6;
+bool loop_closure_en = true;
+double loop_keyframe_distance_m = 0.60;
+double loop_keyframe_angle_deg = 12.0;
+int loop_min_keyframe_separation = 20;
+double loop_search_radius_m = 2.0;
+double loop_fitness_threshold = 0.18;
+double static_voxel_size_m = 0.18;
+int static_min_observations = 3;
+int static_min_keyframe_span = 4;
+int static_min_visibility_checks = 4;
+double static_min_visibility_confidence = 0.65;
+double static_visibility_azimuth_deg = 1.5;
+double static_visibility_elevation_deg = 1.5;
+int static_visibility_neighbor_bins = 1;
+int static_max_visibility_frames = 48;
+double static_free_space_margin_m = 0.35;
+double static_max_stddev_m = 0.12;
+double static_trim_ratio = 0.20;
+int pcd_save_minimum_output_points = 200;
 shared_ptr<Preprocess> p_pre;
 shared_ptr<ImuProcess> p_imu;
 double time_update_last = 0.0, time_current = 0.0, time_predict_last_const = 0.0, t_last = 0.0;
@@ -232,6 +256,90 @@ void readParameters(std::shared_ptr<rclcpp::Node> & nh)
     nh->declare_parameter<double>("mapping.rear_filter_angle_deg", 145.0);
     nh->get_parameter("mapping.rear_filter_angle_deg", rear_filter_angle_deg);
 
+    nh->declare_parameter<bool>("mapping.occlusion_filter_en", true);
+    nh->get_parameter("mapping.occlusion_filter_en", occlusion_filter_en);
+
+    nh->declare_parameter<double>("mapping.occlusion_azimuth_resolution_deg", 1.0);
+    nh->get_parameter(
+      "mapping.occlusion_azimuth_resolution_deg", occlusion_azimuth_resolution_deg);
+
+    nh->declare_parameter<double>("mapping.occlusion_elevation_resolution_deg", 2.0);
+    nh->get_parameter(
+      "mapping.occlusion_elevation_resolution_deg", occlusion_elevation_resolution_deg);
+
+    nh->declare_parameter<double>("mapping.occlusion_depth_margin_m", 0.9);
+    nh->get_parameter("mapping.occlusion_depth_margin_m", occlusion_depth_margin_m);
+
+    nh->declare_parameter<double>("mapping.occlusion_surface_tolerance_m", 0.6);
+    nh->get_parameter(
+      "mapping.occlusion_surface_tolerance_m", occlusion_surface_tolerance_m);
+
+    nh->declare_parameter<bool>("loop_closure.enabled", true);
+    nh->get_parameter("loop_closure.enabled", loop_closure_en);
+
+    nh->declare_parameter<double>("loop_closure.keyframe_distance_m", 0.60);
+    nh->get_parameter("loop_closure.keyframe_distance_m", loop_keyframe_distance_m);
+
+    nh->declare_parameter<double>("loop_closure.keyframe_angle_deg", 12.0);
+    nh->get_parameter("loop_closure.keyframe_angle_deg", loop_keyframe_angle_deg);
+
+    nh->declare_parameter<int>("loop_closure.min_keyframe_separation", 20);
+    nh->get_parameter(
+      "loop_closure.min_keyframe_separation", loop_min_keyframe_separation);
+
+    nh->declare_parameter<double>("loop_closure.search_radius_m", 2.0);
+    nh->get_parameter("loop_closure.search_radius_m", loop_search_radius_m);
+
+    nh->declare_parameter<double>("loop_closure.fitness_threshold", 0.18);
+    nh->get_parameter("loop_closure.fitness_threshold", loop_fitness_threshold);
+
+    nh->declare_parameter<double>("pcd_save.static_voxel_size_m", 0.18);
+    nh->get_parameter("pcd_save.static_voxel_size_m", static_voxel_size_m);
+
+    nh->declare_parameter<int>("pcd_save.static_min_observations", 3);
+    nh->get_parameter("pcd_save.static_min_observations", static_min_observations);
+
+    nh->declare_parameter<int>("pcd_save.static_min_keyframe_span", 4);
+    nh->get_parameter("pcd_save.static_min_keyframe_span", static_min_keyframe_span);
+
+    nh->declare_parameter<int>("pcd_save.static_min_visibility_checks", 4);
+    nh->get_parameter(
+      "pcd_save.static_min_visibility_checks", static_min_visibility_checks);
+
+    nh->declare_parameter<double>("pcd_save.static_min_visibility_confidence", 0.65);
+    nh->get_parameter(
+      "pcd_save.static_min_visibility_confidence", static_min_visibility_confidence);
+
+    nh->declare_parameter<double>("pcd_save.static_visibility_azimuth_deg", 1.5);
+    nh->get_parameter(
+      "pcd_save.static_visibility_azimuth_deg", static_visibility_azimuth_deg);
+
+    nh->declare_parameter<double>("pcd_save.static_visibility_elevation_deg", 1.5);
+    nh->get_parameter(
+      "pcd_save.static_visibility_elevation_deg", static_visibility_elevation_deg);
+
+    nh->declare_parameter<int>("pcd_save.static_visibility_neighbor_bins", 1);
+    nh->get_parameter(
+      "pcd_save.static_visibility_neighbor_bins", static_visibility_neighbor_bins);
+
+    nh->declare_parameter<int>("pcd_save.static_max_visibility_frames", 48);
+    nh->get_parameter(
+      "pcd_save.static_max_visibility_frames", static_max_visibility_frames);
+
+    nh->declare_parameter<double>("pcd_save.static_free_space_margin_m", 0.35);
+    nh->get_parameter(
+      "pcd_save.static_free_space_margin_m", static_free_space_margin_m);
+
+    nh->declare_parameter<double>("pcd_save.static_max_stddev_m", 0.12);
+    nh->get_parameter("pcd_save.static_max_stddev_m", static_max_stddev_m);
+
+    nh->declare_parameter<double>("pcd_save.static_trim_ratio", 0.20);
+    nh->get_parameter("pcd_save.static_trim_ratio", static_trim_ratio);
+
+    nh->declare_parameter<int>("pcd_save.minimum_output_points", 200);
+    nh->get_parameter(
+      "pcd_save.minimum_output_points", pcd_save_minimum_output_points);
+
     nh->declare_parameter<int>("ivox_nearby_type", 18);
     nh->get_parameter("ivox_nearby_type", ivox_nearby_type);
   } catch (const rclcpp::ParameterTypeException & e) {
@@ -273,14 +381,11 @@ Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3 & rot)
   return ang;
 }
 
-void open_file()
+bool open_file()
 {
   fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), ios::out);
   fout_imu_pbp.open(DEBUG_FILE_DIR("imu_pbp.txt"), ios::out);
-  if (fout_out && fout_imu_pbp)
-    std::cout << "~~~~" << ROOT_DIR << " file opened" << '\n';
-  else
-    std::cout << "~~~~" << ROOT_DIR << " doesn't exist" << '\n';
+  return fout_out.is_open() && fout_imu_pbp.is_open();
 }
 
 void reset_cov(Eigen::Matrix<double, 24, 24> & P_init)

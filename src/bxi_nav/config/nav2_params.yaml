@@ -9,7 +9,7 @@ bt_navigator:
     # 机器人本体坐标系。
     robot_base_frame: base_link
     # 导航器参考的里程计话题。
-    odom_topic: /aft_mapped_to_init
+    odom_topic: /nav/odom
     # 行为树主循环周期，单位毫秒。
     bt_loop_duration: 10
     # 行为树动作/服务节点默认等待超时时间，单位毫秒。
@@ -97,7 +97,7 @@ controller_server:
     # 控制器允许连续失败的容忍时间，单位秒。
     failure_tolerance: 1.0
     # 控制器使用的里程计话题。
-    odom_topic: /aft_mapped_to_init
+    odom_topic: /nav/odom
     # 默认启用的进度检查器插件名称。
     progress_checker_plugin: progress_checker
     # 可用目标检查器插件列表。
@@ -136,13 +136,13 @@ controller_server:
       # TF 查询超时时间，单位秒。
       transform_tolerance: 1.0
       # 线速度 PID 的比例系数。
-      linear_kp: 5.0
+      linear_kp: 4.0
       # 线速度 PID 的积分系数。
       linear_ki: 0.0
       # 线速度 PID 的微分系数。
       linear_kd: 0.5
       # 角速度 PID 的比例系数。
-      angular_kp: 2.5
+      angular_kp: 1.5
       # 角速度 PID 的积分系数。
       angular_ki: 0.01
       # 角速度 PID 的微分系数。
@@ -160,7 +160,7 @@ controller_server:
       # 最大线加速度，单位 m/s^2。
       max_linear_accel: 3.0
       # 最大角加速度，单位 rad/s^2。
-      max_angular_accel: 4.0
+      max_angular_accel: 6.0
       # 距离最终目标点小于该值时开始降低线速度。
       goal_slowdown_radius: 0.6
       # 距离最终目标点小于该值时开始对齐目标朝向。
@@ -462,10 +462,11 @@ velocity_smoother:
     # 最大减速度限制，顺序为 [x, y, theta]；负值表示减速方向。
     max_decel: [-0.8, 0.0, -1.5]
     # 速度平滑器参考的里程计话题。
-    odom_topic: /aft_mapped_to_init
+    odom_topic: /nav/odom
     # 里程计数据有效时间窗口，单位秒。
     odom_duration: 0.1
     # 速度死区，低于该值的速度分量会被压到 0。
     deadband_velocity: [0.02, 0.0, 0.02]
     # 超过该时间未收到速度指令时停止输出，单位秒。
     velocity_timeout: 1.0
+

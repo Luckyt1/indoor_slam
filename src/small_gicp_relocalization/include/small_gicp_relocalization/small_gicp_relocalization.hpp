@@ -15,16 +15,17 @@
 #ifndef SMALL_GICP_RELOCALIZATION__SMALL_GICP_RELOCALIZATION_HPP_
 #define SMALL_GICP_RELOCALIZATION__SMALL_GICP_RELOCALIZATION_HPP_
 
-#include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "bxi_nav_interfaces/msg/relocalization_status.hpp"
+#include "nav2_msgs/srv/load_map.hpp"
 #include "pcl/io/pcd_io.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "small_gicp/ann/kdtree_omp.hpp"
 #include "small_gicp/factors/gicp_factor.hpp"
 #include "small_gicp/pcl/pcl_point.hpp"
@@ -44,11 +45,27 @@ public:
 
 private:
   void registeredPcdCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
-  void loadGlobalMap(const std::string & file_name);
+  // 启动时解析一次 base->lidar 先验地图变换 (随后热换图复用)。
+  void resolvePriorMapTransform();
+  // 加载/热换先验地图: 读 PCD → 变换 → 降采样 → 建树 → 估协方差, 全部成功
+  // 后才原子换入成员; 同时把位姿状态重置为"等待 /initialpose"(与进程重启
+  // 语义一致)。失败抛异常, 旧地图 (若有) 保持可用。
+  void loadPriorMap(const std::string & file_name);
+  // slam_manager 在 navigation→navigation 换图时调用的热换图服务
+  // (nav2_msgs/srv/LoadMap, map_url = PCD 路径), 免去整进程重启和雷达断流。
+  void onLoadMapService(
+    const std::shared_ptr<nav2_msgs::srv::LoadMap::Request> request,
+    std::shared_ptr<nav2_msgs::srv::LoadMap::Response> response);
   void performRegistration();
   void publishTransform();
   void publishGlobalMap();
+  void publishRelocState();
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
+  // /initialpose 多假设朝向搜索: 以给定位置为中心均匀撒 yaw 种子做粗配准,
+  // 取内点率最优者作为种子位姿; 无缓存扫描或搜索失败时原样返回给定位姿。
+  Eigen::Isometry3d searchYawHypotheses(
+    const Eigen::Isometry3d & map_to_odom_guess, const Eigen::Isometry3d & map_to_robot_base,
+    const Eigen::Isometry3d & odom_to_robot_base);
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
@@ -64,8 +81,26 @@ private:
   double max_translation_update_;
   double max_rotation_update_;
   bool require_initial_pose_;
+  bool publish_debug_clouds_;
   bool initial_pose_received_;
   bool has_global_map_msg_;
+  // 定位健康度: 最近一次"被接受的 GICP 更新"距今超过该秒数即视为未定位。
+  double localized_timeout_;
+  // Future dating for map->odom, matching the standard localization TF
+  // contract so consumers querying at "now" do not outrun delayed scans.
+  double transform_publish_tolerance_;
+  bool last_published_reloc_required_;
+  rclcpp::Time last_accepted_time_;
+  double last_fitness_score_;
+  double last_inlier_ratio_;
+  double last_translation_update_;
+  double last_rotation_update_deg_;
+  // /initialpose 朝向假设数 (含"按给定朝向"本身); <=1 关闭搜索。
+  int initial_pose_yaw_hypotheses_;
+  // 每个朝向假设的粗配准迭代上限 (一次性突发, 控制总耗时)。
+  int initial_pose_search_iterations_;
+  // 退化检测: Hessian 平移块 λmin/λmax 低于该值时抑制弱方向平移分量; <=0 关闭。
+  double degeneracy_min_eigen_ratio_;
   std::vector<double> init_pose_;
 
   std::string map_frame_;
@@ -77,16 +112,17 @@ private:
   std::string current_scan_frame_id_;
   std::string input_cloud_topic_;
   rclcpp::Time last_scan_time_;
-  std::mutex scan_mutex_;
-  std::mutex pose_mutex_;
-  std::uint64_t pose_version_;
   Eigen::Isometry3d result_t_;
   Eigen::Isometry3d previous_result_t_;
+  // 启动时解析的先验地图坐标变换 (odom←lidar_odom); 热换图复用, 不再查 TF。
+  Eigen::Affine3d prior_map_transform_;
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_;
-  pcl::PointCloud<pcl::PointXYZ>::Ptr registered_scan_;
   pcl::PointCloud<pcl::PointXYZ>::Ptr accumulated_cloud_;
   pcl::PointCloud<pcl::PointCovariance>::Ptr target_;
+  pcl::PointCloud<pcl::PointCovariance>::Ptr source_;
+  // 最近一帧协方差已就绪的源点云 —— /initialpose 朝向搜索直接复用,
+  // 不必等下一个配准周期。
+  pcl::PointCloud<pcl::PointCovariance>::Ptr last_source_;
 
   std::shared_ptr<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>> target_tree_;
   std::shared_ptr<
@@ -95,13 +131,7 @@ private:
 
   rclcpp::TimerBase::SharedPtr transform_timer_;
   rclcpp::TimerBase::SharedPtr register_timer_;
-  rclcpp::TimerBase::SharedPtr global_map_timer_;
-
-  rclcpp::CallbackGroup::SharedPtr point_cloud_callback_group_;
-  rclcpp::CallbackGroup::SharedPtr initial_pose_callback_group_;
-  rclcpp::CallbackGroup::SharedPtr registration_callback_group_;
-  rclcpp::CallbackGroup::SharedPtr transform_callback_group_;
-  rclcpp::CallbackGroup::SharedPtr global_map_callback_group_;
+  rclcpp::TimerBase::SharedPtr reloc_state_timer_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -110,6 +140,10 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr current_scan_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aligned_scan_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr reloc_required_pub_;
+  rclcpp::Publisher<bxi_nav_interfaces::msg::RelocalizationStatus>::SharedPtr
+    reloc_status_pub_;
+  rclcpp::Service<nav2_msgs::srv::LoadMap>::SharedPtr load_map_srv_;
   sensor_msgs::msg::PointCloud2 global_map_msg_;
 };
 
