@@ -57,6 +57,7 @@ target_link_libraries(${PROJECT_NAME}
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN small_gicp_relocalization::SmallGicpRelocalizationNode
   EXECUTABLE ${PROJECT_NAME}_node
+  EXECUTOR MultiThreadedExecutor
 )
 
 #############

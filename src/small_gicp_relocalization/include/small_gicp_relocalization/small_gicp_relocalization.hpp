@@ -16,6 +16,7 @@
 #define SMALL_GICP_RELOCALIZATION__SMALL_GICP_RELOCALIZATION_HPP_
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,8 @@ private:
   Eigen::Isometry3d searchYawHypotheses(
     const Eigen::Isometry3d & map_to_odom_guess, const Eigen::Isometry3d & map_to_robot_base,
     const Eigen::Isometry3d & odom_to_robot_base);
+  pcl::PointCloud<pcl::PointCovariance>::Ptr cropCloudForSearch(
+    const pcl::PointCloud<pcl::PointCovariance>::Ptr & cloud, double x, double y) const;
 
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pcd_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
@@ -73,8 +76,11 @@ private:
   int num_threads_;
   int num_neighbors_;
   int min_source_points_;
+  int registration_max_iterations_;
   float global_leaf_size_;
   float registered_leaf_size_;
+  double convergence_translation_epsilon_;
+  double convergence_rotation_epsilon_deg_;
   float max_dist_sq_;
   double min_inlier_ratio_;
   double max_fitness_score_;
@@ -99,6 +105,11 @@ private:
   int initial_pose_yaw_hypotheses_;
   // 每个朝向假设的粗配准迭代上限 (一次性突发, 控制总耗时)。
   int initial_pose_search_iterations_;
+  // 给定朝向达到高质量门槛时直接采用，避免继续计算其余朝向。
+  double initial_pose_early_accept_inlier_ratio_;
+  double initial_pose_early_accept_fitness_;
+  // /initialpose 粗搜索只使用点击位置附近的目标点; <=0 使用完整目标地图。
+  double initial_pose_search_radius_;
   // 退化检测: Hessian 平移块 λmin/λmax 低于该值时抑制弱方向平移分量; <=0 关闭。
   double degeneracy_min_eigen_ratio_;
   std::vector<double> init_pose_;
@@ -114,6 +125,8 @@ private:
   rclcpp::Time last_scan_time_;
   Eigen::Isometry3d result_t_;
   Eigen::Isometry3d previous_result_t_;
+  // TF 定时器在独立 callback group 中并发读取最近一次有效校正。
+  mutable std::mutex result_mutex_;
   // 启动时解析的先验地图坐标变换 (odom←lidar_odom); 热换图复用, 不再查 TF。
   Eigen::Affine3d prior_map_transform_;
 
@@ -132,6 +145,7 @@ private:
   rclcpp::TimerBase::SharedPtr transform_timer_;
   rclcpp::TimerBase::SharedPtr register_timer_;
   rclcpp::TimerBase::SharedPtr reloc_state_timer_;
+  rclcpp::CallbackGroup::SharedPtr transform_callback_group_;
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
