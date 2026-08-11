@@ -1143,9 +1143,8 @@ def run_ros(args: argparse.Namespace, session: MappingSession) -> None:
             # 位姿才能投影到地图坐标。直接把 Point-LIO 里程计转换成与导航模式
             # 相同的 /nav/pose 契约，避免为了一个位姿额外拉起整套导航管线。
             self.pose_pub = self.create_publisher(NavPose, "/nav/pose", status_qos)
-            # indoor_slam's terrain_analysis keeps its own rolling collision
-            # cloud. Bridge the App clear service into its legacy clear topic
-            # so the 2D mapping grid and controller obstacle cloud stay aligned.
+            # terrain_analysis maintains a separate rolling collision cloud.
+            # Keep App terrain clears aligned with the PID planner's cloud.
             self.terrain_clear_pub = self.create_publisher(
                 Float32, "/map_clearing", 10
             )

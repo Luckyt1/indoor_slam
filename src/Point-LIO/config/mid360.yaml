@@ -12,8 +12,8 @@
         runtime_pos_log_enable: False                       # Option: True
 
         common:
-            lid_topic: "/simulation/head_lidar/points"
-            imu_topic: "/simulation/head_lidar/imu"
+            lid_topic: "livox/lidar"
+            imu_topic: "livox/imu"
             con_frame: False                                # True: if you need to combine several LiDAR frames into one
             con_frame_num: 1                                # the number of frames combined
             cut_frame: False                                # True: if you need to cut one LiDAR frame into several subframes
@@ -21,7 +21,7 @@
             time_diff_lidar_to_imu: 0.0                     # Time offset between LiDAR and IMU calibrated by other algorithms, e.g., LI-Init (find in Readme)
 
         preprocess:
-            lidar_type: 2                                   # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR
+            lidar_type: 1                                   # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR
             scan_line: 6
             timestamp_unit: 3                               # the unit of time/t field in the PointCloud2 rostopic: 0-second, 1-milisecond, 2-microsecond, 3-nanosecond.
             blind: 0.3
@@ -33,7 +33,7 @@
             lidar_time_inte: 0.05
             satu_acc: 3.0                                   # the saturation value of IMU's acceleration. not related to the units
             satu_gyro: 35.0                                 # the saturation value of IMU's angular velocity. not related to the units
-            acc_norm: 9.81                                   # 1.0 for g as unit, 9.81 for m/s^2 as unit of the IMU's acceleration
+            acc_norm: 1.0                                   # 1.0 for g as unit, 9.81 for m/s^2 as unit of the IMU's acceleration
             lidar_meas_cov: 0.01                            # 0.001
             acc_cov_output: 500.0
             gyr_cov_output: 1000.0
@@ -45,9 +45,15 @@
             acc_cov_input: 0.1                              # for IMU as input model
             plane_thr: 0.1                                  # 0.05, the threshold for plane criteria, the smaller, the flatter a plane
             match_s: 70.0
+            det_range: 20.0                                 # Indoor cap: ignores weak far returns beyond useful room-scale geometry
             ivox_grid_resolution: 0.5
-            filter_rear_points: False                      # Drop the rear sector from map building and PCD saving
-            rear_filter_angle_deg: 100.0                   # Total rear sector angle centered on -X in lidar/body frame
+            filter_rear_points: True                        # Ignore the 120-degree rear sector while walking behind the robot
+            rear_filter_angle_deg: 120.0
+            occlusion_filter_en: True                       # Reject far returns hidden behind a narrow wall seam
+            occlusion_azimuth_resolution_deg: 1.0
+            occlusion_elevation_resolution_deg: 2.0
+            occlusion_depth_margin_m: 0.9
+            occlusion_surface_tolerance_m: 0.6
             gravity: [ 0.0, 0.0, -9.81]                   # [0.0, 9.810, 0.0] # gravity to be aligned
             gravity_init: [ 0.0, 0.0, -9.810]              # [0.0, 9.810, 0.0] # # preknown gravity in the first IMU body frame, use when imu_en is False or start from a non-stationary state
             extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
@@ -61,13 +67,34 @@
         publish:
             path_en: False                                   # False: close the path output
             scan_publish_en: True                           # False: close all the point cloud output
-            scan_bodyframe_pub_en: True                     # True: output the point cloud scans in IMU-body-frame
+            scan_bodyframe_pub_en: False                    # No in-tree consumer; avoid a second full cloud conversion every frame
             tf_send_en: True                                # True: publish odometry TF
             world_frame: "odom"                             # Point-LIO local frame; relocalization publishes map -> odom
             body_frame: "body_raw"                          # Robot/body frame under odom; corrected to base_link via static TF
 
+        loop_closure:
+            enabled: False                                  # Reserved; saving persists the live mapping result unchanged
+            keyframe_distance_m: 0.60
+            keyframe_angle_deg: 12.0
+            min_keyframe_separation: 20
+            search_radius_m: 2.0
+            fitness_threshold: 0.18
+
         pcd_save:
             pcd_save_en: True
-            filter_en: False                                # True: save time-consistent static map; False: save accumulated scans without static filtering
+            filter_en: False                                # Reserved; live mapping filters are already applied before saving
+            static_voxel_size_m: 0.18
+            static_min_observations: 3
+            static_min_keyframe_span: 4                     # Seen across separated keyframes, not a brief passer-by
+            static_min_visibility_checks: 4                 # Require enough hit/free-space evidence before classifying
+            static_min_visibility_confidence: 0.65          # Removert-style visibility consistency threshold
+            static_visibility_azimuth_deg: 1.5              # Compact spherical range image; evaluated only when saving
+            static_visibility_elevation_deg: 1.5
+            static_visibility_neighbor_bins: 1             # Conservative 3x3 angular neighborhood avoids edge false positives
+            static_max_visibility_frames: 48               # Uniform temporal sampling bounds save-time complexity
+            static_free_space_margin_m: 0.35                # Pose/noise tolerance before a farther hit becomes a conflict
+            static_max_stddev_m: 0.12                       # Reject spatially unstable returns after robust trimming
+            static_trim_ratio: 0.20                         # Remove the largest residual outliers around the median
+            minimum_output_points: 200                     # Match GICP target minimum; reject non-empty but unusable maps
             interval: -1                                    # how many LiDAR frames saved in each pcd file;
                                                             # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.

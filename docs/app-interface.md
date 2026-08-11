@@ -209,9 +209,6 @@ src/bxi_nav/maps/floor_1.yaml
 
 ### 5.6 清除地形点云
 
-该接口会同时清除 App 建图栅格指定半径内的缓存，并通知导航侧
-`terrain_analysis` 清除 PID 路径跟踪器使用的滚动地形点云。
-
 ```bash
 ros2 service call /mapping/clear_terrain bxi_nav_interfaces/srv/ClearTerrain \
   "{radius: 8.0}"

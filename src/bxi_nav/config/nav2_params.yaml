@@ -336,7 +336,7 @@ local_costmap:
         # 使用 Nav2 的膨胀层插件，为障碍物周围生成安全缓冲区。
         plugin: "nav2_costmap_2d::InflationLayer"
         # 障碍物向外膨胀的半径，单位米。
-        inflation_radius: 0.15
+        inflation_radius: 0.05
         # 膨胀代价衰减系数；值越大，远离障碍后的代价下降越快。
         cost_scaling_factor: 0.1
 
@@ -377,7 +377,7 @@ global_costmap:
         # 使用 Nav2 膨胀层插件。
         plugin: nav2_costmap_2d::InflationLayer
         # 全局障碍物膨胀半径，单位米。
-        inflation_radius: 0.15
+        inflation_radius: 1.5
         # 膨胀代价衰减系数；值越大，远离障碍后的代价下降越快。
         cost_scaling_factor: 0.1
       # 是否每次发布完整代价地图，而不是只发布增量更新。

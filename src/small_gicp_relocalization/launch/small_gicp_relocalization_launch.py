@@ -45,15 +45,11 @@ def generate_launch_description():
                 "num_neighbors": 10,
                 # 降采样后的源点云点数低于该值时，跳过本次配准。
                 "min_source_points": 200,
-                # 常规跟踪最多迭代次数；配合较合理的终止阈值限制单周期耗时。
-                "registration_max_iterations": 12,
                 # 先验全局地图的体素降采样尺寸，单位：米。
-                "global_leaf_size": 0.4,
-                # 输入注册点云的体素降采样尺寸，单位：米；源云保持比先验图更细。
-                "registered_leaf_size": 0.25,
-                # 常规 GICP 收敛阈值：5mm / 0.5deg，避免为毫米级终止条件白耗迭代。
-                "convergence_translation_epsilon": 0.005,
-                "convergence_rotation_epsilon_deg": 0.5,
+                "global_leaf_size": 0.25,
+                # 输入注册点云的体素降采样尺寸，单位：米。0.20 比先验图的 0.25
+                # 更细, 提高 map->odom 修正精度; 源点云本身只有几千点, 代价可忽略。
+                "registered_leaf_size": 0.2,
                 # GICP 接受的最大匹配点平方距离。
                 "max_dist_sq": 1.0,
                 # 内点比例低于该值时，拒绝本次 GICP 更新。
@@ -66,16 +62,10 @@ def generate_launch_description():
                 "max_rotation_update_deg": 20.0,
                 # /initialpose 朝向假设数 (含给定朝向本身, 均匀铺满一圈):
                 # App 端只点准位置、朝向给错时也能由粗配准内点率选出正确
-                # 朝向。<=1 关闭搜索。4 个假设把最坏计算量限制为原来的一半。
-                "initial_pose_yaw_hypotheses": 4,
+                # 朝向。<=1 关闭搜索。一次性突发, 2 线程下约 1s。
+                "initial_pose_yaw_hypotheses": 8,
                 # 每个朝向假设的粗配准迭代上限 (只挑种子, 精配准由 2Hz 周期完成)。
-                "initial_pose_search_iterations": 4,
-                # 给定朝向已达到高质量门槛时提前结束，不再计算其余三个方向。
-                "initial_pose_early_accept_inlier_ratio": 0.9,
-                "initial_pose_early_accept_fitness": 0.5,
-                # 粗搜索只在点击位置附近建临时目标树，避免每个朝向查询整张地图。
-                # <=0 时使用完整目标地图。
-                "initial_pose_search_radius": 15.0,
+                "initial_pose_search_iterations": 8,
                 # 退化检测 (长走廊): Hessian 平移块 λmin/λmax 低于该值时,
                 # 抑制弱方向的平移更新分量, 交给里程计。<=0 关闭。
                 "degeneracy_min_eigen_ratio": 0.05,

@@ -72,21 +72,15 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->declare_parameter("num_threads", 4);
   this->declare_parameter("num_neighbors", 20);
   this->declare_parameter("min_source_points", 200);
-  this->declare_parameter("registration_max_iterations", 12);
-  this->declare_parameter("global_leaf_size", 0.4);
+  this->declare_parameter("global_leaf_size", 0.25);
   this->declare_parameter("registered_leaf_size", 0.25);
-  this->declare_parameter("convergence_translation_epsilon", 0.005);
-  this->declare_parameter("convergence_rotation_epsilon_deg", 0.5);
   this->declare_parameter("max_dist_sq", 1.0);
   this->declare_parameter("min_inlier_ratio", 0.35);
   this->declare_parameter("max_fitness_score", 2.0);
   this->declare_parameter("max_translation_update", 1.0);
   this->declare_parameter("max_rotation_update_deg", 20.0);
-  this->declare_parameter("initial_pose_yaw_hypotheses", 4);
-  this->declare_parameter("initial_pose_search_iterations", 4);
-  this->declare_parameter("initial_pose_early_accept_inlier_ratio", 0.9);
-  this->declare_parameter("initial_pose_early_accept_fitness", 0.5);
-  this->declare_parameter("initial_pose_search_radius", 15.0);
+  this->declare_parameter("initial_pose_yaw_hypotheses", 8);
+  this->declare_parameter("initial_pose_search_iterations", 8);
   this->declare_parameter("degeneracy_min_eigen_ratio", 0.05);
   this->declare_parameter("require_initial_pose", false);
   this->declare_parameter("publish_debug_clouds", false);
@@ -104,11 +98,8 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->get_parameter("num_threads", num_threads_);
   this->get_parameter("num_neighbors", num_neighbors_);
   this->get_parameter("min_source_points", min_source_points_);
-  this->get_parameter("registration_max_iterations", registration_max_iterations_);
   this->get_parameter("global_leaf_size", global_leaf_size_);
   this->get_parameter("registered_leaf_size", registered_leaf_size_);
-  this->get_parameter("convergence_translation_epsilon", convergence_translation_epsilon_);
-  this->get_parameter("convergence_rotation_epsilon_deg", convergence_rotation_epsilon_deg_);
   this->get_parameter("max_dist_sq", max_dist_sq_);
   this->get_parameter("min_inlier_ratio", min_inlier_ratio_);
   this->get_parameter("max_fitness_score", max_fitness_score_);
@@ -116,10 +107,6 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->get_parameter("max_rotation_update_deg", max_rotation_update_);
   this->get_parameter("initial_pose_yaw_hypotheses", initial_pose_yaw_hypotheses_);
   this->get_parameter("initial_pose_search_iterations", initial_pose_search_iterations_);
-  this->get_parameter(
-    "initial_pose_early_accept_inlier_ratio", initial_pose_early_accept_inlier_ratio_);
-  this->get_parameter("initial_pose_early_accept_fitness", initial_pose_early_accept_fitness_);
-  this->get_parameter("initial_pose_search_radius", initial_pose_search_radius_);
   this->get_parameter("degeneracy_min_eigen_ratio", degeneracy_min_eigen_ratio_);
   this->get_parameter("require_initial_pose", require_initial_pose_);
   this->get_parameter("publish_debug_clouds", publish_debug_clouds_);
@@ -134,9 +121,7 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   this->get_parameter("init_pose", init_pose_);
   this->get_parameter("input_cloud_topic", input_cloud_topic_);
 
-  if (
-    num_threads_ <= 0 || num_neighbors_ < 3 || min_source_points_ <= 0 ||
-    registration_max_iterations_ < 2) {
+  if (num_threads_ <= 0 || num_neighbors_ < 3 || min_source_points_ <= 0) {
     throw std::invalid_argument("GICP thread, neighbor and point limits must be positive");
   }
   if (
@@ -145,26 +130,9 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
     throw std::invalid_argument("GICP voxel leaf sizes must be finite and positive");
   }
   if (
-    !std::isfinite(convergence_translation_epsilon_) ||
-    convergence_translation_epsilon_ <= 0.0 || convergence_translation_epsilon_ > 0.1 ||
-    !std::isfinite(convergence_rotation_epsilon_deg_) ||
-    convergence_rotation_epsilon_deg_ <= 0.0 || convergence_rotation_epsilon_deg_ > 5.0) {
-    throw std::invalid_argument("GICP convergence tolerances are outside safe limits");
-  }
-  if (
     !std::isfinite(transform_publish_tolerance_) || transform_publish_tolerance_ < 0.0 ||
     transform_publish_tolerance_ > 2.0) {
     throw std::invalid_argument("transform_publish_tolerance must be finite and in [0, 2]");
-  }
-  if (
-    initial_pose_yaw_hypotheses_ < 1 || initial_pose_search_iterations_ < 2 ||
-    !std::isfinite(initial_pose_early_accept_inlier_ratio_) ||
-    initial_pose_early_accept_inlier_ratio_ < min_inlier_ratio_ ||
-    initial_pose_early_accept_inlier_ratio_ > 1.0 ||
-    !std::isfinite(initial_pose_early_accept_fitness_) ||
-    initial_pose_early_accept_fitness_ <= 0.0 ||
-    !std::isfinite(initial_pose_search_radius_) || initial_pose_search_radius_ < 0.0) {
-    throw std::invalid_argument("initial-pose search limits must be finite and positive");
   }
 
   max_rotation_update_ = max_rotation_update_ * std::acos(-1.0) / 180.0;
@@ -172,9 +140,6 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
   accumulated_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
   register_ = std::make_shared<
     small_gicp::Registration<small_gicp::GICPFactor, small_gicp::ParallelReductionOMP>>();
-  register_->criteria.translation_eps = convergence_translation_epsilon_;
-  register_->criteria.rotation_eps =
-    convergence_rotation_epsilon_deg_ * std::acos(-1.0) / 180.0;
 
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
@@ -235,12 +200,9 @@ SmallGicpRelocalizationNode::SmallGicpRelocalizationNode(const rclcpp::NodeOptio
     std::chrono::milliseconds(500),  // 2 Hz
     std::bind(&SmallGicpRelocalizationNode::performRegistration, this));
 
-  transform_callback_group_ =
-    this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   transform_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(50),  // 20 Hz
-    std::bind(&SmallGicpRelocalizationNode::publishTransform, this),
-    transform_callback_group_);
+    std::bind(&SmallGicpRelocalizationNode::publishTransform, this));
 
   reloc_state_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(1000),
@@ -347,9 +309,6 @@ void SmallGicpRelocalizationNode::loadPriorMap(const std::string & file_name)
     std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
     target, small_gicp::KdTreeBuilderOMP(num_threads_));
   small_gicp::estimate_covariances_omp(*target, *target_tree, num_neighbors_, num_threads_);
-  RCLCPP_INFO(
-    this->get_logger(), "Prepared GICP target with %zu points at %.2f m leaf size",
-    target->size(), static_cast<double>(global_leaf_size_));
 
   // 全部构建成功后才换入成员: 热换图中途失败时旧地图保持完好可用。
   // 全分辨率先验地图此后不再使用 (target 已采样, 展示消息已缓存到
@@ -363,11 +322,7 @@ void SmallGicpRelocalizationNode::loadPriorMap(const std::string & file_name)
 
   // 新地图上旧的 map->odom 毫无意义。与进程重启后的语义保持一致: 回到
   // identity、等待新的 /initialpose, 定位健康度立即翻回"需要重定位"。
-  previous_result_t_ = Eigen::Isometry3d::Identity();
-  {
-    std::lock_guard<std::mutex> lock(result_mutex_);
-    result_t_ = previous_result_t_;
-  }
+  result_t_ = previous_result_t_ = Eigen::Isometry3d::Identity();
   initial_pose_received_ = false;
   last_accepted_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
 
@@ -380,8 +335,9 @@ void SmallGicpRelocalizationNode::onLoadMapService(
   std::shared_ptr<nav2_msgs::srv::LoadMap::Response> response)
 {
   // slam_manager 在 navigation→navigation 换图时调用: 进程不重启、雷达不断
-  // 流, 原地换先验地图。地图加载与配准仍在默认互斥 callback group 中串行;
-  // 独立 TF callback group 只读取受锁保护的最新校正快照。
+  // 流, 原地换先验地图。与配准/TF 定时器共享单线程 executor, 处理期间它们
+  // 天然不会并发访问 target_; 加载耗时约等于一次冷启动的地图准备 (数秒级),
+  // 期间 map->odom TF 短暂停发 —— 换图后本来就要求重新 /initialpose。
   try {
     loadPriorMap(request->map_url);
     response->result = nav2_msgs::srv::LoadMap::Response::RESULT_SUCCESS;
@@ -466,7 +422,7 @@ void SmallGicpRelocalizationNode::performRegistration()
   register_->rejector.max_dist_sq = max_dist_sq_;
   // 上限而非固定迭代数: 稳态跟踪一两次内收敛即提前退出, 放宽上限只帮助
   // /initialpose 之后初始误差较大的首次配准。
-  register_->optimizer.max_iterations = registration_max_iterations_;
+  register_->optimizer.max_iterations = 20;
 
   auto result = register_->align(*target_, *source_, *target_tree_, previous_result_t_);
 
@@ -527,11 +483,7 @@ void SmallGicpRelocalizationNode::performRegistration()
     return;
   }
 
-  previous_result_t_ = result.T_target_source;
-  {
-    std::lock_guard<std::mutex> lock(result_mutex_);
-    result_t_ = previous_result_t_;
-  }
+  result_t_ = previous_result_t_ = result.T_target_source;
   // "被接受的更新"即定位成功的权威证据 (匹配点数/内点率已过门槛),
   // 刷新时间戳并立即广播, App 端重定位确认后 ~1 个配准周期内就能看到"已定位"。
   last_accepted_time_ = this->now();
@@ -564,12 +516,7 @@ void SmallGicpRelocalizationNode::performRegistration()
 
 void SmallGicpRelocalizationNode::publishTransform()
 {
-  Eigen::Isometry3d result_snapshot;
-  {
-    std::lock_guard<std::mutex> lock(result_mutex_);
-    result_snapshot = result_t_;
-  }
-  if (result_snapshot.matrix().isZero()) {
+  if (result_t_.matrix().isZero()) {
     return;
   }
 
@@ -584,8 +531,8 @@ void SmallGicpRelocalizationNode::publishTransform()
   transform_stamped.header.frame_id = map_frame_;
   transform_stamped.child_frame_id = odom_frame_;
 
-  const Eigen::Vector3d translation = result_snapshot.translation();
-  const Eigen::Quaterniond rotation(result_snapshot.rotation());
+  const Eigen::Vector3d translation = result_t_.translation();
+  const Eigen::Quaterniond rotation(result_t_.rotation());
 
   transform_stamped.transform.translation.x = translation.x();
   transform_stamped.transform.translation.y = translation.y();
@@ -637,11 +584,7 @@ void SmallGicpRelocalizationNode::initialPoseCallback(
     map_to_odom = searchYawHypotheses(map_to_odom, map_to_robot_base, odom_to_robot_base);
 
     initial_pose_received_ = true;
-    previous_result_t_ = map_to_odom;
-    {
-      std::lock_guard<std::mutex> lock(result_mutex_);
-      result_t_ = previous_result_t_;
-    }
+    previous_result_t_ = result_t_ = map_to_odom;
     // 重置定位健康度: 用户刚设的位姿还没被扫描匹配验证过, 先回到"未定位",
     // 等下一次被接受的 GICP 更新 (通常 <1s) 再翻成"已定位" — 匹配不上就一直
     // 保持"需要重定位", App 端能如实看到这次重定位没有成功。
@@ -652,27 +595,6 @@ void SmallGicpRelocalizationNode::initialPoseCallback(
       this->get_logger(), "Could not transform initial pose from %s to %s: %s",
       odom_frame_.c_str(), robot_base_frame_.c_str(), ex.what());
   }
-}
-
-pcl::PointCloud<pcl::PointCovariance>::Ptr SmallGicpRelocalizationNode::cropCloudForSearch(
-  const pcl::PointCloud<pcl::PointCovariance>::Ptr & cloud, double x, double y) const
-{
-  if (!cloud || initial_pose_search_radius_ <= 0.0) {
-    return cloud;
-  }
-
-  auto cropped = std::make_shared<pcl::PointCloud<pcl::PointCovariance>>();
-  cropped->reserve(cloud->size());
-  const double radius_sq = initial_pose_search_radius_ * initial_pose_search_radius_;
-  for (const auto & point : cloud->points) {
-    const double dx = static_cast<double>(point.x) - x;
-    const double dy = static_cast<double>(point.y) - y;
-    if (dx * dx + dy * dy <= radius_sq) {
-      cropped->push_back(point);
-    }
-  }
-
-  return cropped;
 }
 
 Eigen::Isometry3d SmallGicpRelocalizationNode::searchYawHypotheses(
@@ -694,28 +616,6 @@ Eigen::Isometry3d SmallGicpRelocalizationNode::searchYawHypotheses(
   const double base_yaw = planarYaw(map_to_robot_base.rotation());
   constexpr double kTwoPi = 2.0 * 3.14159265358979323846;
 
-  const auto search_started_at = std::chrono::steady_clock::now();
-  const auto search_target = cropCloudForSearch(target_, base_x, base_y);
-  const auto search_source = cropCloudForSearch(
-    last_source_, odom_to_robot_base.translation().x(), odom_to_robot_base.translation().y());
-  const auto minimum_target_points = static_cast<size_t>(
-    std::max(min_source_points_, num_neighbors_ + 1));
-  if (
-    !search_target || search_target->size() < minimum_target_points || !search_source ||
-    search_source->size() < minimum_points) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Yaw hypothesis search skipped: local crop has %zu target and %zu source points.",
-      search_target ? search_target->size() : 0, search_source ? search_source->size() : 0);
-    return map_to_odom_guess;
-  }
-  auto search_tree = target_tree_;
-  if (search_target != target_) {
-    search_tree =
-      std::make_shared<small_gicp::KdTree<pcl::PointCloud<pcl::PointCovariance>>>(
-      search_target, small_gicp::KdTreeBuilderOMP(num_threads_));
-  }
-
   // 一次性突发: 每个假设一轮少迭代的粗配准, 结果只用来挑种子; 精配准仍由
   // 2Hz 周期完成。performRegistration 每周期都会重设迭代上限, 这里改完
   // 不必恢复。
@@ -724,7 +624,6 @@ Eigen::Isometry3d SmallGicpRelocalizationNode::searchYawHypotheses(
   register_->optimizer.max_iterations = std::max(2, initial_pose_search_iterations_);
 
   double best_inlier_ratio = -1.0;
-  double max_inlier_ratio_seen = -1.0;
   double best_fitness = std::numeric_limits<double>::infinity();
   int best_index = -1;
   Eigen::Isometry3d best_transform = map_to_odom_guess;
@@ -734,45 +633,25 @@ Eigen::Isometry3d SmallGicpRelocalizationNode::searchYawHypotheses(
       kTwoPi * static_cast<double>(hypothesis) / static_cast<double>(initial_pose_yaw_hypotheses_);
     const Eigen::Isometry3d seed =
       makePlanarTransform(base_x, base_y, base_yaw + yaw_offset) * odom_to_robot_base.inverse();
-    const auto result = register_->align(*search_target, *search_source, *search_tree, seed);
-    if (
-      result.num_inliers == 0 || !std::isfinite(result.error) ||
-      !result.T_target_source.matrix().allFinite()) {
-      RCLCPP_DEBUG(
-        this->get_logger(), "Yaw hypothesis %d/%d unusable: converged=%s inliers=%zu",
-        hypothesis, initial_pose_yaw_hypotheses_, result.converged ? "true" : "false",
-        result.num_inliers);
+    const auto result = register_->align(*target_, *last_source_, *target_tree_, seed);
+    // 搜索突发会占住本节点 (单线程 executor) 数秒, 期间 20Hz 的 map->odom
+    // TF 定时器不会运行。逐假设手动重发一次当前估计, 把 TF 空窗压缩到单次
+    // align 的时长, 避免 Nav2/位姿流在重定位瞬间报 TF 外推超时。
+    publishTransform();
+    if (!result.converged || result.num_inliers == 0) {
       continue;
     }
     const double inlier_ratio =
-      static_cast<double>(result.num_inliers) / static_cast<double>(search_source->size());
+      static_cast<double>(result.num_inliers) / static_cast<double>(last_source_->size());
     const double fitness = result.error / static_cast<double>(result.num_inliers);
-    RCLCPP_DEBUG(
-      this->get_logger(),
-      "Yaw hypothesis %d/%d: converged=%s inliers=%zu ratio=%.3f fitness=%.3f",
-      hypothesis, initial_pose_yaw_hypotheses_, result.converged ? "true" : "false",
-      result.num_inliers, inlier_ratio, fitness);
-    if (inlier_ratio < min_inlier_ratio_ || fitness > max_fitness_score_) {
-      continue;
-    }
-
-    if (
-      hypothesis == 0 && inlier_ratio >= initial_pose_early_accept_inlier_ratio_ &&
-      fitness <= initial_pose_early_accept_fitness_) {
-      best_inlier_ratio = inlier_ratio;
-      best_fitness = fitness;
-      best_index = hypothesis;
-      best_transform = result.T_target_source;
-      break;
-    }
-
-    // 粗搜索不要求达到 small_gicp 的毫米级终止阈值; 它只选择有限、过质量门槛
-    // 的种子，最终 LOCALIZED 仍必须由后续严格收敛的常规 GICP 更新确认。
-    const bool better = best_index < 0 || inlier_ratio > max_inlier_ratio_seen + 0.02 ||
-      (inlier_ratio >= max_inlier_ratio_seen - 0.02 && fitness < best_fitness);
-    max_inlier_ratio_seen = std::max(max_inlier_ratio_seen, inlier_ratio);
+    // 内点率优先; 差距在 2% 内视为平手, 取平均误差更小者。hypothesis 0 先
+    // 评估, 平手时自然保留给定朝向。best_inlier_ratio 只增不减: 平手换人时
+    // 若也跟着换成较低的比值, 连续多个"各差 <2%"的假设会把基准一路棘轮
+    // 下移, 最终赢家可能比真正的最高内点率低不止 2%。
+    const bool better = inlier_ratio > best_inlier_ratio + 0.02 ||
+      (inlier_ratio > best_inlier_ratio - 0.02 && fitness < best_fitness);
     if (better) {
-      best_inlier_ratio = inlier_ratio;
+      best_inlier_ratio = std::max(best_inlier_ratio, inlier_ratio);
       best_fitness = fitness;
       best_index = hypothesis;
       best_transform = result.T_target_source;
@@ -780,21 +659,16 @@ Eigen::Isometry3d SmallGicpRelocalizationNode::searchYawHypotheses(
   }
 
   if (best_index < 0 || best_inlier_ratio < min_inlier_ratio_) {
-    const double elapsed_ms = std::chrono::duration<double, std::milli>(
-      std::chrono::steady_clock::now() - search_started_at).count();
     RCLCPP_WARN(
       this->get_logger(),
-      "Yaw hypothesis search found no usable seed in %.1f ms using %zu target points; "
-      "seeding as given.", elapsed_ms, search_target->size());
+      "Yaw hypothesis search found no hypothesis above inlier gate (best ratio %.3f); "
+      "seeding as given.",
+      best_inlier_ratio);
     return map_to_odom_guess;
   }
-  const double elapsed_ms = std::chrono::duration<double, std::milli>(
-    std::chrono::steady_clock::now() - search_started_at).count();
   RCLCPP_INFO(
     this->get_logger(),
-    "Yaw hypothesis search completed in %.1f ms with %zu target points: hypothesis %d/%d "
-    "wins (offset %.0f deg, inliers %.3f, fitness %.3f).",
-    elapsed_ms, search_target->size(),
+    "Yaw hypothesis search: hypothesis %d/%d wins (offset %.0f deg, inliers %.3f, fitness %.3f).",
     best_index, initial_pose_yaw_hypotheses_,
     360.0 * static_cast<double>(best_index) / static_cast<double>(initial_pose_yaw_hypotheses_),
     best_inlier_ratio, best_fitness);

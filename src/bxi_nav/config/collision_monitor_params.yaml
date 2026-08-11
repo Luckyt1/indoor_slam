@@ -16,8 +16,7 @@ collision_monitor:
     stop_pub_timeout: 1.0
 
     # A front-only hard guard protects people from noisy approach/normal
-    # transitions. The footprint approach remains direction-aware, so a rear-
-    # clear recovery can still back away from obstacles outside the hard guard.
+    # transitions. Autonomous navigation itself is forward-only.
     polygons: [FrontStop, NearStop]
     FrontStop:
       type: polygon

@@ -4,10 +4,20 @@ set -u
 
 SESSION="indoor_slam"
 WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NAV_MAP="$WORKSPACE_DIR/maps/maps.yaml"
-PCD_MAP="$WORKSPACE_DIR/maps/PCD/scans.pcd"
+NAV_MAP="${NAV_MAP:-$WORKSPACE_DIR/src/bxi_nav/maps/maps.yaml}"
+RC_ENV_FILE="${BXI_RC_ENV_FILE:-/opt/bxi/bxi_rc_ros2/env.conf}"
 
-export ROS_DOMAIN_ID=13
+# 生产环境由 bxi_rc_ros2 提供唯一的 ROS/DDS 配置。备用 tmux 启动器
+# 读取同一份配置，不再创建或硬编码独立 Domain。
+if [[ -r "$RC_ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$RC_ENV_FILE"
+    set +a
+fi
+
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
 
 ROS_SETUP="/opt/ros/humble/setup.bash"
 WORKSPACE_SETUP="$WORKSPACE_DIR/install/setup.bash"
@@ -33,11 +43,6 @@ if [[ ! -f "$NAV_MAP" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$PCD_MAP" ]]; then
-    echo "PCD map not found: $PCD_MAP" >&2
-    exit 1
-fi
-
 # ------------------------------------------------------------------
 # 检查 tmux
 # ------------------------------------------------------------------
@@ -52,9 +57,15 @@ fi
 # 对路径进行 shell 转义，避免路径中存在空格
 printf -v WORKSPACE_SETUP_Q '%q' "$WORKSPACE_SETUP"
 printf -v NAV_MAP_Q '%q' "$NAV_MAP"
-printf -v PCD_MAP_Q '%q' "$PCD_MAP"
 
-COMMON_ENV="export ROS_DOMAIN_ID=13; source /opt/ros/humble/setup.bash; source $WORKSPACE_SETUP_Q"
+COMMON_ENV=""
+for env_name in ROS_DOMAIN_ID RMW_IMPLEMENTATION ROS_LOCALHOST_ONLY CYCLONEDDS_URI; do
+    if [[ -v "$env_name" ]]; then
+        printf -v env_value_q '%q' "${!env_name}"
+        COMMON_ENV+="export ${env_name}=${env_value_q}; "
+    fi
+done
+COMMON_ENV+="source /opt/ros/humble/setup.bash; source $WORKSPACE_SETUP_Q"
 
 # ------------------------------------------------------------------
 # 清理旧会话
@@ -144,7 +155,7 @@ sleep 3
 
 tmux send-keys \
     -t "$SESSION:0.1" \
-    "$COMMON_ENV; ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py prior_pcd_file:=$PCD_MAP_Q" \
+    "$COMMON_ENV; ros2 launch small_gicp_relocalization small_gicp_relocalization_launch.py" \
     C-m
 
 sleep 2
